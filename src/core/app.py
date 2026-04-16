@@ -1,5 +1,6 @@
 from audio.recorder import list_audio_devices, record_audio
 from audio.stt import transcribe_audio
+from brain.llm_client import ask_llm
 from utils.logger import log
 
 
@@ -7,7 +8,7 @@ def run() -> None:
     log("Jarvis inicializado.")
     print()
     print("1 - Listar dispositivos de áudio")
-    print("2 - Gravar e transcrever áudio")
+    print("2 - Conversar com Jarvis")
     print("0 - Sair")
     print()
 
@@ -22,7 +23,11 @@ def run() -> None:
             audio_path = record_audio()
             texto = transcribe_audio(audio_path)
 
-            print(f"\n🧾 Resultado: {texto}\n")
+            print(f"\n🧾 Você disse: {texto}\n")
+
+            resposta = ask_llm(texto)
+
+            print(f"🤖 Jarvis: {resposta}\n")
 
         elif choice == "0":
             log("Encerrando Jarvis.")
