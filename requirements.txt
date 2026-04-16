@@ -1,0 +1,9 @@
+numpy
+scipy
+sounddevice
+soundfile
+faster-whisper
+ollama
+pyttsx3
+pyautogui
+pywin32
