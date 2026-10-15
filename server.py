@@ -30,6 +30,13 @@ async def warm_transcription():
     except Exception as exc:
         await broadcast({'type':'notice','text':'Transcrição local indisponível: '+redact(str(exc))[:300]})
 
+async def warm_voice():
+    try:
+        from core.neural_voice import neural_voice
+        await asyncio.to_thread(neural_voice.warmup)
+    except Exception as exc:
+        await broadcast({'type':'notice','text':'Voz neural local indisponível: '+redact(str(exc))[:300]})
+
 async def broadcast(message):
     encoded = json.dumps(message,ensure_ascii=False)
     async with send_lock:
@@ -71,6 +78,7 @@ async def lifespan(app):
     audio_manager.on_audio_level = level
     periodic = asyncio.create_task(telemetry())
     warmup=asyncio.create_task(warm_transcription()) if settings()['stt_provider']=='whisper-local' else None
+    voice_warmup=asyncio.create_task(warm_voice()) if settings()['tts_provider']=='piper' else None
     try:
         yield
     finally:
@@ -85,6 +93,9 @@ async def lifespan(app):
         if warmup:
             warmup.cancel()
             await asyncio.gather(warmup,return_exceptions=True)
+        if voice_warmup:
+            voice_warmup.cancel()
+            await asyncio.gather(voice_warmup,return_exceptions=True)
         audio_manager.on_state_change = None
         audio_manager.on_audio_level = None
 
@@ -229,7 +240,7 @@ async def save_settings(changes:dict):
     candidate = {**current,**changes}
     if candidate['provider'] not in ('openai-api','gemini') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
         raise ValueError('Provedor inválido.')
-    if candidate['tts_provider'] not in ('edge','offline','openai') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
+    if candidate['tts_provider'] not in ('edge','offline','piper','openai') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
         raise ValueError('Provedor de áudio inválido.')
     for name in ('model','fallback_model','tts_voice'):
         if not isinstance(candidate[name],str) or len(candidate[name])>120 or not re.fullmatch(r'[a-zA-Z0-9_./:-]*',candidate[name]):
@@ -254,8 +265,9 @@ async def audio_devices():
     devices=await asyncio.to_thread(input_devices)
     try:selected=resolve_input(settings()['input_device'])['id']
     except ValueError:selected=None
+    from core.neural_voice import neural_voice
     return {'inputs':devices,'selected':selected,'last_capture':audio_manager.last_capture,
-            'transcriber_ready':audio_manager._whisper is not None}
+            'transcriber_ready':audio_manager._whisper is not None,'neural_voice_ready':neural_voice.ready}
 
 @app.get('/api/models')
 async def models(provider:str):

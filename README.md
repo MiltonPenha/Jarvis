@@ -2,7 +2,7 @@
 
 Assistente pessoal em português brasileiro com o HUD original, FastAPI, voz e **Hermes Agent oficial da Nous Research** como único ciclo de modelo e ferramentas. O antigo agente “inspirado no Hermes”, o histórico em RAM e o fallback Pollinations foram retirados.
 
-Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. A chave Gemini atual consultou o catálogo com sucesso e o painel exibiu 19 modelos de conversa. **Uma conversa real com o provedor ainda precisa ser validada após a escolha de um modelo.** Consulte [a validação e as pendências](docs/VALIDATION.md).
+Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. O usuário selecionou `gemini-3.6-flash` e recebeu uma resposta real. A voz padrão agora é neural local (Piper/Faber), com transcrição Whisper local. Consulte [a validação e as pendências](docs/VALIDATION.md).
 
 ## Iniciar
 
@@ -92,7 +92,8 @@ O servidor aceita somente localhost, verifica Host/Origin e usa cookie HttpOnly/
 ## Voz e custo
 
 - **Edge TTS**: implementação preservada, agora com voz `pt-BR-AntonioNeural`, ritmo calmo e texto limpo. Envia o texto à Microsoft via projeto `edge-tts`; depende desse serviço online e não oferece o mesmo contrato de uma API comercial. Código do `edge-tts` usa predominantemente LGPLv3; a licença do cliente não é licença irrestrita do serviço.
-- **Windows local (padrão)**: SAPI, voz brasileira instalada (Maria neste computador). Gera WAV e reproduz pelo mesmo caminho cancelável dos outros provedores, sem serviço de síntese externo.
+- **Piper/Faber local (padrão)**: voz neural pt-BR, com ritmo mais pausado e síntese em CPU. Modelo e fonemizador são preparados na inicialização; depois não há download ou serviço externo na síntese. Os pesos têm cerca de 63 MB. O perfil de fala usa `JARVIS_PIPER_LENGTH_SCALE=1.18`.
+- **Windows local (opcional)**: SAPI, voz brasileira instalada (Maria neste computador). Continua disponível por escolha explícita, sem fallback automático para ela.
 - **OpenAI áudio**: API oficial; exige `OPENAI_TTS_MODEL`/`OPENAI_STT_MODEL`, tem custo separado do raciocínio e usa `OPENAI_API_KEY`. Modelos não são presumidos.
 - **Transcrição local (padrão)**: Whisper `base` multilíngue, CPU/int8 e quatro threads. O modelo foi preparado em `.data/models/whisper-base`; a captura não faz downloads e usa somente arquivos locais. A instância é carregada na inicialização sem ligar o microfone e reutilizada nos próximos pedidos. Google Web Speech/OpenAI continuam como opções explícitas online.
 

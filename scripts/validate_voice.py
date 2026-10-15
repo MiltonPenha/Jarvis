@@ -10,7 +10,9 @@ from core.safety import atomic_write
 
 async def main():
     result={'perceptual_evaluation':False,'microphone_recorded':False,'tts_provider':settings()['tts_provider'],'stt_provider':settings()['stt_provider']}
-    target=config.DATA_DIR/('validation/voice-local.wav' if settings()['tts_provider']=='offline' else 'validation/voice.mp3')
+    provider=settings()['tts_provider']
+    name='voice-neural.wav' if provider=='piper' else 'voice-local.wav' if provider=='offline' else 'voice.mp3'
+    target=config.DATA_DIR/'validation'/name
     target.parent.mkdir(parents=True,exist_ok=True)
     try:
         await audio_manager.synthesize('JARVIS, diga o status do sistema.',target)

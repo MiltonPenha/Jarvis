@@ -1,23 +1,32 @@
-# Voz e transcrição locais — 15/10/2026
+# Voz neural e transcrição locais — 15/10/2026
 
-A configuração solicitada mantém **Gemini pela API para o raciocínio** e usa **Whisper local para reconhecer a fala** e **SAPI/Windows para a voz**. O microfone G522 permanece selecionado. Não há integração com Ollama, modelo local de raciocínio ou fallback automático para serviços de voz online.
+O raciocínio usa **Gemini pela API**; o modelo escolhido pelo usuário é `gemini-3.6-flash`. **Piper/Faber** gera a voz neural localmente e **Whisper base** transcreve o G522 no computador. A voz Windows/SAPI continua como alternativa manual. Não há fallback automático entre motores de áudio.
 
-O áudio do microfone é processado pelo Whisper no computador. O texto reconhecido é enviado ao Gemini como pedido; o texto da resposta volta e é sintetizado pela voz brasileira instalada no Windows (Maria nesta máquina). A latência da API Gemini continua existindo.
+## Tom e tratamento
+
+O perfil Faber pt-BR usa `length_scale=1.18`, variação de áudio moderada e volume 0,92, com ritmo mais pausado. É uma voz neural de catálogo; a semelhança subjetiva com o estilo pedido deve ser avaliada pela amostra, sem promessa de identidade vocal com o personagem.
+
+O prompt do Hermes orienta tratamento respeitoso como **Senhor**, tom suave, calmo e centrado, sem exagero ou repetição do vocativo. A preferência explícita também foi salva e verificada na memória nativa. Pedidos simples devem receber respostas diretas; assuntos que exigem detalhes continuam desenvolvidos.
 
 ## Preparação e execução
 
-`scripts/setup_voice.ps1` instala as dependências travadas, baixa o Whisper `base` multilíngue se necessário e salva somente `tts_provider=offline` e `stt_provider=whisper-local`. Preserva modelo/provedor de IA, credenciais, microfone e outras preferências. O download é feito na preparação; durante a transcrição `local_files_only=True` impede novos downloads.
+`scripts/setup_voice.ps1` instala as dependências travadas, prepara Whisper/Piper e salva `tts_provider=piper` e `stt_provider=whisper-local`. Preserva o provedor e modelo da IA, as credenciais, o microfone e demais preferências. O setup baixa Faber de uma revisão fixa de `rhasspy/piper-voices` e confere SHA-256 do ONNX, JSON e model card. Durante fala e transcrição são usados somente arquivos locais; arquivos ausentes produzem erro com instrução de preparação.
 
-O Whisper usa CPU/int8 com quatro threads e é carregado ao iniciar o servidor, sem capturar áudio. Um lock evita instâncias duplicadas durante a preparação. O áudio capturado a 48 kHz pelo G522 é convertido para 16 kHz para transcrição. A voz SAPI gera WAV local; cancelamento impede a reprodução de uma síntese que terminou após a interrupção.
+Piper usa ONNX Runtime em CPU com duas threads, cache do modelo e locks de carregamento/síntese. A preparação inicial aquece o fonemizador e uma inferência curta, sem reproduzir som. Whisper usa CPU/int8 com quatro threads e é carregado sem ligar o microfone. O áudio a 48 kHz do G522 é convertido para 16 kHz para reconhecimento. A reprodução WAV respeita o cancelamento, inclusive quando uma síntese termina depois da interrupção.
 
-## Verificação e limites
+O áudio fica no computador; o texto reconhecido segue ao Gemini como pedido. O texto da resposta retorna para síntese local. Portanto, a espera pela API continua existindo.
 
-Uma frase artificial foi sintetizada pela voz Windows em WAV de 22.050 Hz, com cerca de 3,93 s de duração, e transcrita pelo Whisper local. Não houve gravação do microfone, reprodução de som ou envio desse áudio a um serviço externo. A transcrição não foi perfeita: o termo “status” foi reconhecido como “os tatos”. O teste comprova execução local; a precisão com a voz do usuário e a qualidade perceptiva continuam exigindo teste manual.
+## Evidência e limites
 
-Os testes automáticos cobrem modelo carregado uma única vez, uso exclusivo dos arquivos preparados, falha sem download quando os pesos faltam, conversão de 48 kHz para 16 kHz e cancelamento de reprodução. Os demais testes de memória, ferramentas, histórico e catálogo Gemini continuam aplicáveis.
+- 42 testes Python passaram após a integração neural; `pip check` passou. Incluem carregamento único sem downloads, execução CPU, resampling e preservação de IA/microfone ao escolher Piper.
+- A amostra `.data/validation/jarvis-neural-sample.wav` tem cerca de 5,4 s, 22.050 Hz e 238.124 bytes. Após aquecimento de aproximadamente 5,47 s na preparação, duas sínteses levaram 0,52 s e 0,46 s. São medições de uma frase, sem garantia para todo texto/carga.
+- A preferência “Senhor” foi gravada/reaberta na memória nativa; o servidor confirmou Gemini, Piper, Whisper, G522 e os dois motores de áudio preparados.
+- No último pedido real observado antes da mudança de voz, o tempo reportado pelo worker Gemini foi 14,05 s, com primeira resposta em 13,99 s. A troca de TTS não elimina esse tempo. Nenhuma nova geração paga foi feita para medir a voz.
+- Qualidade da transcrição e avaliação perceptiva dependem da voz do usuário e do ambiente. Um teste anterior com SAPI produziu erro em “status”; não foi apresentado como precisão perfeita.
 
-Após a correção de escopo, 39 testes Python e 4 JavaScript passaram, assim como `pip check`. O servidor confirmou `provider=gemini`, `tts_provider=offline`, `stt_provider=whisper-local`, Whisper pré-carregado e G522 selecionado; o catálogo Gemini retornou 19 modelos. A comparação do `.env` com o backup anterior à tentativa mostrou somente as duas mudanças de provedor de áudio. Não há Ollama escutando na porta 11434.
+Os downloads extras da tentativa anterior de IA local foram retirados do projeto; o modelo adicional foi removido e o modelo Ollama preexistente foi preservado. Não há integração Ollama nesta configuração.
 
-As alterações anteriores para raciocínio local foram desfeitas: código e configuração do Hermes/Gemini restaurados, processo Ollama extra encerrado e modelo `qwen3.5:2b` retirado. O `qwen3.5:9b` preexistente e a instalação original do Ollama foram preservados. O runtime portátil, seu ZIP e o log foram retirados do projeto e arquivados em `%LOCALAPPDATA%/JarvisBackups/undo-local-ai-20261015`.
+## Fontes e licenças
 
-O modelo Gemini estava vazio antes da tentativa de migração e foi preservado assim. Escolha um modelo na lista do painel e salve antes de conversar pela API.
+- [API Python oficial do Piper](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/API_PYTHON.md), motor GPLv3.
+- [Voz Faber e model card](https://huggingface.co/rhasspy/piper-voices/tree/main/pt/pt_BR/faber/medium), dataset declarado CC0. Revisão fixada: `c10ece1aade47bb51c153c893d14e5bf8e5b7117`; origem/checksums em `.data/models/piper/manifest.json`.

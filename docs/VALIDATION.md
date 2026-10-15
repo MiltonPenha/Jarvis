@@ -2,7 +2,7 @@
 
 ## Áudio local
 
-A configuração atual usa voz Windows e Whisper local, mantendo o Gemini para a IA. Uma síntese WAV brasileira e uma transcrição offline foram concluídas; evidência em `.data/validation/voice-local.json` e `.data/validation/voice-local.wav`. Houve erro de reconhecimento na palavra “status”; execução local não equivale a precisão perfeita. Detalhes e preparação em [AUDIO_LOCAL.md](AUDIO_LOCAL.md).
+A configuração atual usa voz neural Piper/Faber e Whisper local, mantendo o Gemini para a IA. O usuário recebeu uma resposta real com `gemini-3.6-flash`. A amostra neural está em `.data/validation/jarvis-neural-sample.wav`, com medições em `.data/validation/neural-voice.json`; 42 testes Python passaram. A síntese/transcrição Windows anterior permanece como evidência histórica em `voice-local.json`; apresentou erro no termo “status”. Detalhes em [AUDIO_LOCAL.md](AUDIO_LOCAL.md).
 
 ## Correção posterior: reabrir a janela
 

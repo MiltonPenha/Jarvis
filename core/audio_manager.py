@@ -82,7 +82,10 @@ class AudioManager:
         s = settings()
         provider = provider or s['tts_provider']
         text = speech_text(text)
-        if provider=='offline':
+        if provider=='piper':
+            from core.neural_voice import neural_voice
+            await asyncio.to_thread(neural_voice.synthesize,text,path)
+        elif provider=='offline':
             await asyncio.to_thread(self.synthesize_windows,text,path)
         elif provider=='edge':
             import edge_tts
@@ -115,7 +118,7 @@ class AudioManager:
             provider = settings()['tts_provider']
             import sounddevice as sd
             import soundfile as sf
-            with tempfile.NamedTemporaryFile(suffix='.wav' if provider=='offline' else '.mp3',delete=False) as f:
+            with tempfile.NamedTemporaryFile(suffix='.wav' if provider in ('offline','piper') else '.mp3',delete=False) as f:
                 path = Path(f.name)
             asyncio.run(self.synthesize(text,path,provider))
             if self._cancel.is_set():

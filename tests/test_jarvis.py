@@ -133,6 +133,25 @@ class PersistenceTests(unittest.TestCase):
             self.assertFalse(worker.is_alive());play.assert_not_called()
 
 class LocalAudioTests(unittest.TestCase):
+    def test_neural_voice_loads_once_from_local_files_on_cpu(self):
+        from core.neural_voice import NeuralVoice
+        folder=ROOT/'piper-fixture';folder.mkdir(exist_ok=True)
+        model=folder/'voice.onnx';model.write_bytes(b'fixture')
+        model.with_suffix('.onnx.json').write_text('{}',encoding='utf-8')
+        voice=NeuralVoice()
+        with patch.object(config,'PIPER_MODEL_PATH',model),patch('onnxruntime.InferenceSession') as session, \
+             patch('piper.PiperConfig.from_dict'),patch('piper.PiperVoice') as piper, \
+             patch('socket.create_connection',side_effect=AssertionError('Voz deve ser local.')):
+            self.assertIs(voice.prepare(),voice.prepare())
+            session.assert_called_once();piper.assert_called_once()
+            self.assertEqual(session.call_args.kwargs['providers'],['CPUExecutionProvider'])
+
+    def test_neural_voice_missing_assets_fails_without_network(self):
+        from core.neural_voice import NeuralVoice
+        with patch.object(config,'PIPER_MODEL_PATH',ROOT/'missing.onnx'), \
+             patch('socket.create_connection',side_effect=AssertionError('Não baixar durante a fala.')):
+            with self.assertRaisesRegex(ValueError,'setup_voice'):NeuralVoice().prepare()
+
     def test_whisper_loads_once_from_prepared_files_without_downloads(self):
         folder=ROOT/'whisper-fixture';folder.mkdir(exist_ok=True);(folder/'model.bin').write_bytes(b'fixture')
         audio=AudioManager()
@@ -262,6 +281,14 @@ class APITests(unittest.TestCase):
         response=self.client.get('/api/settings')
         self.assertEqual(response.status_code,200)
         self.assertNotIn('OPENAI_API_KEY',response.text)
+
+    def test_neural_voice_selection_preserves_ai_and_microphone(self):
+        before=settings()
+        response=self.client.post('/api/settings',json={'tts_provider':'piper'})
+        self.assertEqual(response.status_code,200)
+        after=settings()
+        for key in ('provider','model','input_device','stt_provider'):
+            self.assertEqual(before[key],after[key])
 
     def test_microphone_selection_is_validated_and_persisted(self):
         device={'id':'WASAPI::fixture headset','name':'fixture headset','index':42}
