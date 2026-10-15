@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>J.A.R.V.I.S. - Sistema de Inteligência Artificial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="sci-fi-theme">
+  <!-- Background Hologram Grid & Scanline -->
+  <div class="hologram-grid"></div>
+  <div class="scanlines"></div>
+  <div class="ambient-glow"></div>
+
+  <!-- HUD Top Bar -->
+  <header class="hud-header">
+    <div class="header-left">
+      <div class="stark-logo">
+        <span class="stark-icon">◈</span>
+        <span class="stark-text">STARK INDUSTRIES</span>
+      </div>
+      <div class="system-tag">J.A.R.V.I.S. // PROTOCOL V4.2</div>
+    </div>
+
+    <div class="header-center">
+      <div class="status-indicator" id="status-badge">
+        <span class="status-dot"></span>
+        <span class="status-text" id="status-text">SISTEMAS OPERACIONAIS</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button class="stop-btn" id="stop-jarvis-btn" title="Encerrar o JARVIS e fechar todos os processos">
+        <span class="stop-icon">⏻</span>
+        <span>ENCERRAR</span>
+      </button>
+      <div class="autostart-pill" id="autostart-btn" title="Clique para alternar inicialização automática ao ligar o PC">
+        <span class="pill-dot" id="autostart-dot"></span>
+        <span class="pill-text" id="autostart-label">BOOT: VERIFICANDO</span>
+      </div>
+      <div class="clock-display">
+        <div class="clock-time" id="hud-clock">00:00:00</div>
+        <div class="clock-date" id="hud-date">07 OUT 2026</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Holographic HUD Container -->
+  <main class="hud-main">
+    
+    <!-- Left Column: System Telemetry -->
+    <aside class="hud-panel telemetry-panel">
+      <div class="panel-header">
+        <span class="panel-tag">[SYS.01]</span>
+        <h3>TELEMETRIA DO SISTEMA</h3>
+        <div class="panel-line"></div>
+      </div>
+
+      <div class="telemetry-grid">
+        <!-- CPU Widget -->
+        <div class="gauge-card">
+          <div class="gauge-ring-container">
+            <svg class="gauge-svg" viewBox="0 0 100 100">
+              <circle class="gauge-bg" cx="50" cy="50" r="40" />
+              <circle class="gauge-bar" id="cpu-gauge" cx="50" cy="50" r="40" />
+            </svg>
+            <div class="gauge-val" id="cpu-val">0%</div>
+          </div>
+          <div class="gauge-info">
+            <span class="gauge-title">CPU PROCESSOR</span>
+            <span class="gauge-sub" id="cpu-sub">0 Cores // 0.0 GHz</span>
+          </div>
+        </div>
+
+        <!-- RAM Widget -->
+        <div class="gauge-card">
+          <div class="gauge-ring-container">
+            <svg class="gauge-svg" viewBox="0 0 100 100">
+              <circle class="gauge-bg" cx="50" cy="50" r="40" />
+              <circle class="gauge-bar" id="ram-gauge" cx="50" cy="50" r="40" />
+            </svg>
+            <div class="gauge-val" id="ram-val">0%</div>
+          </div>
+          <div class="gauge-info">
+            <span class="gauge-title">MEMÓRIA RAM</span>
+            <span class="gauge-sub" id="ram-sub">0.0 GB / 0.0 GB</span>
+          </div>
+        </div>
+
+        <!-- DISK C Widget -->
+        <div class="gauge-card">
+          <div class="gauge-ring-container">
+            <svg class="gauge-svg" viewBox="0 0 100 100">
+              <circle class="gauge-bg" cx="50" cy="50" r="40" />
+              <circle class="gauge-bar" id="disk-gauge" cx="50" cy="50" r="40" />
+            </svg>
+            <div class="gauge-val" id="disk-val">0%</div>
+          </div>
+          <div class="gauge-info">
+            <span class="gauge-title">ARMAZENAMENTO C:</span>
+            <span class="gauge-sub" id="disk-sub">0 GB Livres</span>
+          </div>
+        </div>
+
+        <!-- System Uptime & Host -->
+        <div class="telemetry-row">
+          <div class="data-block">
+            <span class="data-label">UPTIME DO PC</span>
+            <span class="data-val" id="uptime-val">--</span>
+          </div>
+          <div class="data-block">
+            <span class="data-label">ESTAÇÃO</span>
+            <span class="data-val" id="host-val">PC-GAMER</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Commands Matrix -->
+      <div class="quick-actions-box">
+        <div class="panel-header sub">
+          <span class="panel-tag">[MACROS]</span>
+          <h4>COMANDOS RÁPIDOS</h4>
+        </div>
+        <div class="macro-buttons">
+          <button class="macro-btn" data-cmd="status do sistema">⚡ Status do Sistema</button>
+          <button class="macro-btn" data-cmd="tocar música no youtube">🎵 Tocar Música</button>
+          <button class="macro-btn" data-cmd="abrir google chrome">🌐 Abrir Google</button>
+          <button class="macro-btn" data-cmd="pesquisar sobre novidades de inteligência artificial">🔍 Pesquisar IA</button>
+          <button class="macro-btn" data-cmd="abrir obsidian">🟣 Cofre Obsidian</button>
+          <button class="macro-btn" data-cmd="tirar print">📸 Tirar Print</button>
+          <button class="macro-btn" data-cmd="modo trabalho">💻 Modo Trabalho</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Stage: Arc Reactor & Audio Waveform -->
+    <section class="center-stage">
+      <div class="arc-reactor-wrapper">
+        <!-- Interactive 3D Holographic Golden Sphere & Neural Core -->
+        <canvas id="arcCanvas" width="600" height="600"></canvas>
+        
+        <!-- Core Center Glow Overlay -->
+        <div class="reactor-center-glow">
+          <div class="core-symbol">JARVIS</div>
+          <div class="core-subtext" id="core-state">ONLINE</div>
+        </div>
+      </div>
+
+      <!-- Linear Soundwave Equalizer -->
+      <div class="equalizer-bar-container">
+        <div class="eq-bars" id="eq-bars"></div>
+      </div>
+
+      <!-- Central Voice Trigger Mic Button -->
+      <div class="mic-controls">
+        <button class="arc-mic-btn" id="mic-trigger-btn" title="Falar com o Jarvis">
+          <div class="mic-pulse-ring"></div>
+          <svg class="mic-svg" viewBox="0 0 24 24" width="28" height="28">
+            <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <span class="mic-tooltip">FALAR COM JARVIS</span>
+        </button>
+
+        <div class="continuous-mic-toggle">
+          <label class="switch-label">
+            <input type="checkbox" id="continuous-mic-cb">
+            <span class="switch-slider"></span>
+            <span class="switch-text">ESCUTA CONTÍNUA</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Conversational Terminal Feed -->
+    <aside class="hud-panel terminal-panel">
+      <div class="panel-header">
+        <span class="panel-tag">[COM.02]</span>
+        <h3>TERMINAL DE COMANDOS</h3>
+        <button class="clear-terminal-btn" id="clear-log-btn" title="Limpar Histórico">✕</button>
+      </div>
+
+      <div class="terminal-body" id="terminal-feed">
+        <div class="feed-entry jarvis-msg">
+          <div class="entry-header">
+            <span class="entry-sender">J.A.R.V.I.S.</span>
+            <span class="entry-time">01:40</span>
+          </div>
+          <div class="entry-content">
+            Bom dia, senhor. Todos os protocolos operacionais iniciados. Estou pronto para ouvir seus comandos e executar suas ordens.
+          </div>
+        </div>
+      </div>
+
+      <!-- User Text Command Input -->
+      <form class="terminal-input-bar" id="command-form">
+        <input type="text" id="cmd-input" placeholder="Digite ou fale um comando para o Jarvis..." autocomplete="off">
+        <button type="submit" class="send-cmd-btn" id="send-cmd-btn">
+          <span>ENVIAR</span>
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </form>
+    </aside>
+
+  </main>
+
+  <!-- Audio elements for sound effects -->
+  <audio id="audio-chime" preload="auto"></audio>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
