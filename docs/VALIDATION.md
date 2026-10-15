@@ -1,5 +1,9 @@
 # Validação — 15/10/2026
 
+## Áudio local
+
+A configuração atual usa voz Windows e Whisper local, mantendo o Gemini para a IA. Uma síntese WAV brasileira e uma transcrição offline foram concluídas; evidência em `.data/validation/voice-local.json` e `.data/validation/voice-local.wav`. Houve erro de reconhecimento na palavra “status”; execução local não equivale a precisão perfeita. Detalhes e preparação em [AUDIO_LOCAL.md](AUDIO_LOCAL.md).
+
 ## Correção posterior: reabrir a janela
 
 O iniciador encerrava sem abrir o HUD quando já havia um servidor ativo. Agora identifica a instância JARVIS pelo `/health` e reabre uma janela de aplicativo Chrome/Edge sem criar outro servidor. Três testes de regressão em `tests/test_launcher.py` passaram. A execução real de `start_jarvis.bat` com a instância ativa retornou normalmente; o endpoint respondeu HTTP 200 e foi identificada uma janela JARVIS do Chrome. O `.env` atualizado foi carregado ao reiniciar a instância ociosa. Esses testes são adicionais aos 26 da implementação inicial descritos abaixo.

@@ -24,6 +24,12 @@ shutdown_callback = None
 voice_runner = None
 voice_continuous = False
 
+async def warm_transcription():
+    try:
+        await asyncio.to_thread(audio_manager.prepare_local_transcriber)
+    except Exception as exc:
+        await broadcast({'type':'notice','text':'Transcrição local indisponível: '+redact(str(exc))[:300]})
+
 async def broadcast(message):
     encoded = json.dumps(message,ensure_ascii=False)
     async with send_lock:
@@ -64,6 +70,7 @@ async def lifespan(app):
     audio_manager.on_state_change = state
     audio_manager.on_audio_level = level
     periodic = asyncio.create_task(telemetry())
+    warmup=asyncio.create_task(warm_transcription()) if settings()['stt_provider']=='whisper-local' else None
     try:
         yield
     finally:
@@ -75,6 +82,9 @@ async def lifespan(app):
         with suppress(asyncio.CancelledError):
             await periodic
         await assistant.close()
+        if warmup:
+            warmup.cancel()
+            await asyncio.gather(warmup,return_exceptions=True)
         audio_manager.on_state_change = None
         audio_manager.on_audio_level = None
 
@@ -244,7 +254,8 @@ async def audio_devices():
     devices=await asyncio.to_thread(input_devices)
     try:selected=resolve_input(settings()['input_device'])['id']
     except ValueError:selected=None
-    return {'inputs':devices,'selected':selected,'last_capture':audio_manager.last_capture}
+    return {'inputs':devices,'selected':selected,'last_capture':audio_manager.last_capture,
+            'transcriber_ready':audio_manager._whisper is not None}
 
 @app.get('/api/models')
 async def models(provider:str):

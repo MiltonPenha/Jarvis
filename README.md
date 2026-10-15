@@ -92,9 +92,11 @@ O servidor aceita somente localhost, verifica Host/Origin e usa cookie HttpOnly/
 ## Voz e custo
 
 - **Edge TTS**: implementação preservada, agora com voz `pt-BR-AntonioNeural`, ritmo calmo e texto limpo. Envia o texto à Microsoft via projeto `edge-tts`; depende desse serviço online e não oferece o mesmo contrato de uma API comercial. Código do `edge-tts` usa predominantemente LGPLv3; a licença do cliente não é licença irrestrita do serviço.
-- **Windows offline**: SAPI/pyttsx3, sem envio de texto, qualidade depende das vozes instaladas. Selecionável sem fallback silencioso.
+- **Windows local (padrão)**: SAPI, voz brasileira instalada (Maria neste computador). Gera WAV e reproduz pelo mesmo caminho cancelável dos outros provedores, sem serviço de síntese externo.
 - **OpenAI áudio**: API oficial; exige `OPENAI_TTS_MODEL`/`OPENAI_STT_MODEL`, tem custo separado do raciocínio e usa `OPENAI_API_KEY`. Modelos não são presumidos.
-- **STT padrão**: Google Web Speech via SpeechRecognition, online. **Whisper local** é opcional (`pip install faster-whisper` na `.venv`); usa `base` em CPU/int8, cacheia a instância e baixa os pesos no primeiro uso. Não foi instalado/avaliado nesta etapa. Seu i5/32 GB permite começar por esse perfil sem ocupar a VRAM; CUDA/RTX 4060 Ti fica para medição posterior.
+- **Transcrição local (padrão)**: Whisper `base` multilíngue, CPU/int8 e quatro threads. O modelo foi preparado em `.data/models/whisper-base`; a captura não faz downloads e usa somente arquivos locais. A instância é carregada na inicialização sem ligar o microfone e reutilizada nos próximos pedidos. Google Web Speech/OpenAI continuam como opções explícitas online.
+
+O raciocínio continua no Gemini pela API. Somente áudio e transcrição foram configurados para execução local: a fala é convertida em texto no computador e o texto do pedido segue para o modelo escolhido. Para preparar a voz novamente, execute `scripts/setup_voice.ps1`; ele preserva o provedor, modelo, credenciais e microfone. Consulte [a configuração de áudio local](docs/AUDIO_LOCAL.md).
 
 A fala remove Markdown, código, URLs e logs, limita aproximadamente 700 caracteres e preserva o texto completo na tela. A interrupção impede que uma síntese cancelada comece a tocar. A captura tenta 16 kHz e usa a frequência nativa quando necessário, preservando essa frequência na transcrição. O G522 foi aberto fisicamente a 48 kHz com sinal recebido; o reconhecimento da voz do usuário e a avaliação perceptiva ainda precisam de teste manual. Há evidência técnica de síntese Edge e transcrição Google em [VALIDATION.md](docs/VALIDATION.md).
 

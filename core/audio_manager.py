@@ -32,7 +32,7 @@ class AudioManager:
         self._mic_lock = threading.Lock()
         self._speech_lock = threading.Lock()
         self._whisper = None
-        self._pyttsx_engine = None
+        self._whisper_lock = threading.Lock()
         self._generation = 0
         self.last_capture = {}
 
@@ -48,17 +48,43 @@ class AudioManager:
             sd.stop()
         except Exception:
             pass
-        if self._pyttsx_engine:
-            try:
-                self._pyttsx_engine.stop()
-            except Exception:
-                pass
+
+    def prepare_local_transcriber(self):
+        with self._whisper_lock:
+            if self._whisper is None:
+                if not (config.WHISPER_PATH/'model.bin').is_file():
+                    raise ValueError('Whisper local não preparado. Execute scripts/setup_voice.ps1.')
+                from faster_whisper import WhisperModel
+                self._whisper=WhisperModel(str(config.WHISPER_PATH),device='cpu',compute_type='int8',
+                                          cpu_threads=4,num_workers=1,local_files_only=True)
+        return self._whisper
+
+    @staticmethod
+    def synthesize_windows(text,path):
+        import pythoncom
+        from win32com.client import Dispatch
+        pythoncom.CoInitialize()
+        stream=None
+        try:
+            voice=Dispatch('SAPI.SpVoice')
+            voices=list(voice.GetVoices())
+            brazilian=next((v for v in voices if '416' in v.GetAttribute('Language').lower().split(';')),None)
+            if brazilian is None:raise ValueError('Instale uma voz Português (Brasil) nas configurações de fala do Windows.')
+            voice.Voice=brazilian;voice.Rate=0;voice.Volume=100
+            stream=Dispatch('SAPI.SpFileStream');stream.Open(str(path.resolve()),3,False)
+            voice.AudioOutputStream=stream
+            voice.Speak(text,0)
+        finally:
+            if stream:stream.Close()
+            pythoncom.CoUninitialize()
 
     async def synthesize(self,text,path,provider=None):
         s = settings()
         provider = provider or s['tts_provider']
         text = speech_text(text)
-        if provider=='edge':
+        if provider=='offline':
+            await asyncio.to_thread(self.synthesize_windows,text,path)
+        elif provider=='edge':
             import edge_tts
             voice = s['tts_voice']
             await asyncio.wait_for(edge_tts.Communicate(text,voice,rate=config.TTS_RATE,pitch=config.TTS_PITCH).save(str(path)),25)
@@ -87,36 +113,21 @@ class AudioManager:
             self.is_speaking = True
             self.notify_state('SPEAKING')
             provider = settings()['tts_provider']
-            if provider=='offline':
-                import pyttsx3
-                engine = pyttsx3.init()
-                self._pyttsx_engine = engine
-                engine.setProperty('rate',config.OFFLINE_TTS_RATE)
-                for voice in engine.getProperty('voices'):
-                    if 'brazil' in voice.name.lower() or 'pt-br' in voice.id.lower():
-                        engine.setProperty('voice',voice.id)
-                        break
-                if not self._cancel.is_set():
-                    engine.say(text)
-                    engine.runAndWait()
-            else:
-                import sounddevice as sd
-                import soundfile as sf
-                with tempfile.NamedTemporaryFile(suffix='.mp3',delete=False) as f:
-                    path = Path(f.name)
-                asyncio.run(self.synthesize(text,path,provider))
-                if self._cancel.is_set():
-                    return {'state':'cancelled'}
-                data,rate = sf.read(path,dtype='float32')
-                # Generation is checked after network synthesis; cancelled audio never starts.
-                if generation!=self._generation:
-                    return {'state':'cancelled'}
-                sd.play(data,rate,device=config.OUTPUT_DEVICE)
-                # Waiting in short slices permits a hard playback stop.
-                deadline = time.monotonic()+len(data)/rate
-                while time.monotonic()<deadline and not self._cancel.wait(.05):
-                    pass
-                sd.stop()
+            import sounddevice as sd
+            import soundfile as sf
+            with tempfile.NamedTemporaryFile(suffix='.wav' if provider=='offline' else '.mp3',delete=False) as f:
+                path = Path(f.name)
+            asyncio.run(self.synthesize(text,path,provider))
+            if self._cancel.is_set():
+                return {'state':'cancelled'}
+            data,rate = sf.read(path,dtype='float32')
+            if generation!=self._generation:
+                return {'state':'cancelled'}
+            sd.play(data,rate,device=config.OUTPUT_DEVICE)
+            deadline = time.monotonic()+len(data)/rate
+            while time.monotonic()<deadline and not self._cancel.wait(.05):
+                pass
+            sd.stop()
             return {'state':'cancelled' if self._cancel.is_set() else 'completed'}
         except Exception as exc:
             # No hidden provider fallback: failures stay visible and text remains usable.
@@ -124,7 +135,6 @@ class AudioManager:
         finally:
             if path:
                 path.unlink(missing_ok=True)
-            self._pyttsx_engine = None
             self.is_speaking = False
             self._speech_lock.release()
 
@@ -181,10 +191,9 @@ class AudioManager:
                 samples=audio_data.flatten()
                 audio_data=np.interp(np.arange(round(len(samples)*16000/samplerate))*samplerate/16000,
                                      np.arange(len(samples)),samples).astype(np.float32)
-            if self._whisper is None:
-                from faster_whisper import WhisperModel
-                self._whisper = WhisperModel('base',device='cpu',compute_type='int8')
-            segments,_ = self._whisper.transcribe(audio_data.flatten(),language='pt',vad_filter=True)
+            transcriber=self.prepare_local_transcriber()
+            segments,_ = transcriber.transcribe(audio_data.flatten(),language='pt',vad_filter=True,
+                beam_size=1,best_of=1,condition_on_previous_text=False)
             return ' '.join(s.text for s in segments).strip()
         buffer = io.BytesIO()
         sf.write(buffer,audio_data,samplerate,format='WAV',subtype='PCM_16')

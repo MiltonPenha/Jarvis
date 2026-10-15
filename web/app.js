@@ -162,6 +162,7 @@ class JarvisHUD extends ReactorVisuals {
     await this.safe(async()=>{
       const s=await this.api('settings');this.settings=s;
       for(const key of ['provider','fallback_provider','tts_provider','tts_voice','stt_provider'])document.getElementById('setting-'+key).value=s[key];
+      this.updateVoiceFields();
       this.setModelOptions(false,[],s.model);
       this.setModelOptions(true,[],s.fallback_model);
       document.getElementById('setting-speech_enabled').checked=s.speech_enabled;
@@ -178,6 +179,9 @@ class JarvisHUD extends ReactorVisuals {
       select.value=s.input_device||'';
       document.getElementById('microphone-status').textContent='Microfone selecionado: '+(audio.selected||'indisponível');
     });
+  }
+  updateVoiceFields() {
+    document.getElementById('setting-tts_voice').parentElement.style.display=document.getElementById('setting-tts_provider').value==='edge'?'':'none';
   }
   setModelOptions(fallback,models,selected='') {
     const select=document.getElementById(fallback?'setting-fallback_model':'setting-model');
@@ -252,6 +256,7 @@ class JarvisHUD extends ReactorVisuals {
       await this.api('settings',data);await this.loadSettings();document.getElementById('panel-message').textContent='Configurações salvas e verificadas.';
     });
     on('discover-models',async()=>{await Promise.all([this.loadModels(),this.loadModels(true)]);});
+    document.getElementById('setting-tts_provider').onchange=()=>this.updateVoiceFields();
     for(const fallback of [false,true])document.getElementById(fallback?'setting-fallback_provider':'setting-provider').onchange=()=>this.safe(async()=>{this.setModelOptions(fallback,[]);await this.loadModels(fallback);});
     on('memory-refresh',async()=>this.showMemory());
     on('memory-events-refresh',async()=>{document.getElementById('memory-events').textContent=JSON.stringify(await this.api('memory/events'),null,2);});

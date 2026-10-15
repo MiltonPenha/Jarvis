@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 TEST_DIR = tempfile.TemporaryDirectory(prefix='jarvis-test-')
 ROOT = Path(TEST_DIR.name)
 os.environ.update(JARVIS_DATA_DIR=str(ROOT/'data'),JARVIS_HERMES_HOME=str(ROOT/'hermes'),
+                  JARVIS_PROVIDER='openai-api',JARVIS_MODEL='',JARVIS_FALLBACK_PROVIDER='',JARVIS_FALLBACK_MODEL='',
                   OBSIDIAN_VAULT_PATH=str(ROOT/'vault'),JARVIS_WORKSPACE_ROOTS=str(ROOT/'workspace'))
 (ROOT/'workspace').mkdir()
 
@@ -130,6 +131,36 @@ class PersistenceTests(unittest.TestCase):
             worker=threading.Thread(target=audio.speak,args=('Teste',))
             worker.start();self.assertTrue(started.wait(5));audio.stop();release.set();worker.join(5)
             self.assertFalse(worker.is_alive());play.assert_not_called()
+
+class LocalAudioTests(unittest.TestCase):
+    def test_whisper_loads_once_from_prepared_files_without_downloads(self):
+        folder=ROOT/'whisper-fixture';folder.mkdir(exist_ok=True);(folder/'model.bin').write_bytes(b'fixture')
+        audio=AudioManager()
+        with patch.object(config,'WHISPER_PATH',folder),patch('faster_whisper.WhisperModel') as model:
+            self.assertIs(audio.prepare_local_transcriber(),audio.prepare_local_transcriber())
+            model.assert_called_once()
+            self.assertTrue(model.call_args.kwargs['local_files_only'])
+            self.assertEqual(model.call_args.kwargs['device'],'cpu')
+
+    def test_missing_local_model_fails_without_downloading(self):
+        audio=AudioManager()
+        with patch.object(config,'WHISPER_PATH',ROOT/'missing-whisper'),patch('faster_whisper.WhisperModel') as model:
+            with self.assertRaisesRegex(ValueError,'setup_voice'):audio.prepare_local_transcriber()
+            model.assert_not_called()
+
+    def test_native_rate_audio_is_resampled_for_local_transcription(self):
+        import numpy as np
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        audio=AudioManager();transcriber=MagicMock()
+        transcriber.transcribe.return_value=([SimpleNamespace(text='Olá, Jarvis.')],None)
+        with patch('core.audio_manager.settings',return_value={'stt_provider':'whisper-local'}), \
+             patch.object(audio,'prepare_local_transcriber',return_value=transcriber), \
+             patch('socket.create_connection',side_effect=AssertionError('Transcrição deve ser local.')):
+            self.assertEqual(audio.transcribe_audio(np.zeros((48000,1),dtype=np.float32),48000),'Olá, Jarvis.')
+        samples=transcriber.transcribe.call_args.args[0]
+        self.assertEqual(len(samples),16000)
+        self.assertEqual(samples.dtype,np.float32)
 
 class ModelCatalogTests(unittest.IsolatedAsyncioTestCase):
     async def test_gemini_catalog_excludes_specialized_models(self):
