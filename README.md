@@ -12,7 +12,7 @@ O ambiente já foi preparado neste computador. Execute `start_jarvis.bat` ou, no
 .\.venv\Scripts\python.exe run_jarvis.py
 ```
 
-Abra [JARVIS local](http://127.0.0.1:8000). O microfone começa desligado. Fechar/recarregar uma aba preserva a execução e o histórico. Para encerrar, use **ENCERRAR**, `stop_jarvis.bat` ou Ctrl+C. Há uma única instância por porta e encerramento dos workers e tarefas.
+Abra [JARVIS local](http://127.0.0.1:8000). O iniciador abre uma janela própria do Chrome/Edge; executar `start_jarvis.bat` novamente reabre a interface da instância ativa, sem duplicar o servidor. O microfone começa desligado. Fechar/recarregar uma aba preserva a execução e o histórico. Para encerrar, use **ENCERRAR**, `stop_jarvis.bat` ou Ctrl+C. Há uma única instância por porta e encerramento dos workers e tarefas.
 
 Para preparar novamente:
 

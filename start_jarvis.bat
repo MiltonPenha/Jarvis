@@ -5,3 +5,8 @@ if exist ".venv\Scripts\python.exe" (
 ) else (
   python run_jarvis.py %*
 )
+if errorlevel 1 (
+  echo.
+  echo Nao foi possivel iniciar o JARVIS. Confira a mensagem acima.
+  pause
+)

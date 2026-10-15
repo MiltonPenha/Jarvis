@@ -2,10 +2,10 @@
 import argparse
 import asyncio
 import socket
-import webbrowser
 import uvicorn
 from core.config import config
 from core.safety import atomic_write
+from core.launcher import is_jarvis_running,open_hud
 import server
 
 def main():
@@ -16,6 +16,11 @@ def main():
         raise SystemExit('JARVIS permite somente acesso local. Use HOST=127.0.0.1.')
     with socket.socket() as sock:
         if sock.connect_ex(('127.0.0.1',config.PORT))==0:
+            if is_jarvis_running(config.PORT):
+                if not args.no_browser:
+                    open_hud(config.PORT)
+                print(f'JARVIS já está ativo: http://127.0.0.1:{config.PORT}')
+                return
             raise SystemExit(f'A porta {config.PORT} já está ocupada. Nenhuma segunda instância foi iniciada.')
     import os
     atomic_write(config.DATA_DIR/'server.pid',str(os.getpid()))
@@ -26,7 +31,7 @@ def main():
             while not uvserver.started and not uvserver.should_exit:
                 await asyncio.sleep(.1)
             if uvserver.started and not args.no_browser:
-                webbrowser.open(f'http://127.0.0.1:{config.PORT}')
+                await asyncio.to_thread(open_hud,config.PORT)
         opening = asyncio.create_task(open_browser())
         try:
             print(f'JARVIS / Hermes: http://127.0.0.1:{config.PORT}')

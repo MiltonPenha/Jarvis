@@ -1,5 +1,9 @@
 # Validação — 15/10/2026
 
+## Correção posterior: reabrir a janela
+
+O iniciador encerrava sem abrir o HUD quando já havia um servidor ativo. Agora identifica a instância JARVIS pelo `/health` e reabre uma janela de aplicativo Chrome/Edge sem criar outro servidor. Três testes de regressão em `tests/test_launcher.py` passaram. A execução real de `start_jarvis.bat` com a instância ativa retornou normalmente; o endpoint respondeu HTTP 200 e foi identificada uma janela JARVIS do Chrome. O `.env` atualizado foi carregado ao reiniciar a instância ociosa. Esses testes são adicionais aos 26 da implementação inicial descritos abaixo.
+
 Não há resultados de geração real OpenAI/Gemini aprovados. As credenciais herdadas foram recusadas. Testes de transporte/serviço com respostas controladas estão identificados abaixo e não representam desempenho ou qualidade de um modelo de nuvem.
 
 ## Verificações executadas
