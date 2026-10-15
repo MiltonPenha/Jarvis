@@ -7,7 +7,7 @@ const path=require('node:path');
 
 function setup(){
   const elements=new Map();
-  const element=()=>({value:'',textContent:'',disabled:false,children:[],
+  const element=()=>({value:'',textContent:'',disabled:false,hidden:false,parentElement:{style:{}},children:[],
     replaceChildren(){this.children=[];this.value='';},append(child){this.children.push(child);}});
   const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element};
   const context=vm.createContext({ReactorVisuals:class{},document,window:{addEventListener(){}},encodeURIComponent,Set,Promise});
@@ -53,4 +53,18 @@ test('catalog failure stays visible and preserves a configured model',async()=>{
   assert.equal(get('setting-model').value,'saved-model');
   assert.match(get('models-status').textContent,/HTTP 403/);
   assert.equal(get('setting-model').disabled,false);
+});
+
+test('Fish voice shows key setup status and hides unrelated voice input',()=>{
+  const {hud,get}=setup();get('setting-tts_provider').value='fish-audio';
+  hud.settings={fish_voice:{title:'Jarvis (UCM) - Português Brasileiro',configured:false}};
+  hud.updateVoiceFields();
+  assert.equal(get('fish-voice-status').hidden,false);
+  assert.match(get('fish-voice-status').textContent,/FISH_API_KEY/);
+  assert.equal(get('setting-tts_voice').parentElement.style.display,'none');
+  hud.settings.fish_voice.configured=true;hud.updateVoiceFields();
+  assert.match(get('fish-voice-status').textContent,/Chave configurada/);
+  get('setting-tts_provider').value='edge';hud.updateVoiceFields();
+  assert.equal(get('fish-voice-status').hidden,true);
+  assert.equal(get('setting-tts_voice').parentElement.style.display,'');
 });

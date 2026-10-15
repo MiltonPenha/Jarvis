@@ -82,3 +82,9 @@ O padrão de entrada era o Wireless Controller, enquanto o usuário usa o G522 s
 Há seleção de entrada no painel, diagnóstico de fala detectada e mensagens distintas para ausência de sinal e transcrição sem palavras. A sensibilidade padrão passou de 0,015 para 0,004 RMS; um `JARVIS_VAD_THRESHOLD` explícito continua prevalecendo. Os cinco testes novos cobrem seleção independente do padrão do Windows/índice, fallback para frequência nativa, fala de baixa amplitude com término por silêncio, frequência repassada à transcrição e validação/persistência pela API. Reconhecimento real da voz do usuário permanece pendente de seu teste no HUD.
 
 Após a correção, `unittest discover -s tests -v` passou os 34 testes em 16,821 s. Python e JavaScript passaram na verificação de sintaxe. O servidor reiniciado com `--no-browser` respondeu online e confirmou pela API o G522 salvo/selecionado e a presença do seletor no HUD.
+
+## Fish Audio, voz específica — 15/10/2026
+
+Integração da referência `a5b93aeddcc948c19ea04f0afe9d178c`, título público verificado “Jarvis (UCM) - Português Brasileiro”. A síntese envia somente o texto da resposta à Fish Audio; Whisper continua local e a configuração Gemini/G522 foi preservada. Sem fallback para outra voz/motor, sem retries automáticos, chave somente no backend. Ausência de chave aparece no painel e na falha de fala.
+
+49 testes Python passaram em 15,368 s. Sete novos cenários cobrem requisição HTTP com referência/motor explícitos, erros seguros sem repetição, chave/motor inválidos sem rede, cancelamento de requisição, conteúdo inválido/vazio, erro de configuração visível sem reprodução e seleção pela API sem mudar IA/STT/microfone ou expor chave. O novo teste JavaScript verifica a instrução de configuração e visibilidade dos campos. A geração real com esta voz e avaliação auditiva permanecem pendentes: o usuário ainda não tem chave Fish Audio. Nenhuma síntese real Fish foi solicitada.

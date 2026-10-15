@@ -9,7 +9,7 @@ load_dotenv(BASE_DIR / '.env', override=False)
 # A nonempty project credential is an explicit user choice. Empty example fields
 # keep inherited credentials, while inherited placeholders cannot mask a new key.
 for _key,_value in dotenv_values(BASE_DIR/'.env').items():
-    if _key in ('OPENAI_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY') and _value:
+    if _key in ('OPENAI_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','FISH_API_KEY') and _value:
         os.environ[_key]=_value
 
 class Config:
@@ -36,6 +36,7 @@ class Config:
     OPENAI_TTS_MODEL = os.getenv('OPENAI_TTS_MODEL', '')
     OPENAI_TTS_VOICE = os.getenv('OPENAI_TTS_VOICE', 'onyx')
     OPENAI_STT_MODEL = os.getenv('OPENAI_STT_MODEL', '')
+    FISH_TTS_MODEL = os.getenv('FISH_TTS_MODEL', 's2.1-pro-free')
     STT_LANGUAGE = 'pt-BR'
     VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.004'))
     INPUT_DEVICE = os.getenv('JARVIS_INPUT_DEVICE') or None
@@ -70,4 +71,6 @@ def provider_key(provider):
         return os.getenv('OPENAI_API_KEY', '')
     if provider == 'gemini':
         return os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY', '')
+    if provider == 'fish-audio':
+        return os.getenv('FISH_API_KEY', '')
     return ''

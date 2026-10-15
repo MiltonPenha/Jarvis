@@ -227,7 +227,9 @@ async def history(session:str='default'):
 @app.get('/api/settings')
 async def get_settings():
     s = settings()
-    return {**s,'credentials':{p:bool(provider_key(p)) for p in ('openai-api','gemini')},
+    from core.fish_voice import voice_status
+    return {**s,'credentials':{p:bool(provider_key(p)) for p in ('openai-api','gemini','fish-audio')},
+        'fish_voice':voice_status(),
         'vault':str(obsidian_memory.vault_dir),'workspace_roots':[str(p) for p in config.WORKSPACE_ROOTS],
         'limits':{'steps':config.MAX_STEPS,'output_tokens_per_call':config.MAX_OUTPUT_TOKENS,'context_chars':config.MAX_CONTEXT_CHARS,
                   'task_seconds':config.TASK_TIMEOUT,'daily_tasks':config.MAX_DAILY_TASKS,'daily_tokens_soft':config.MAX_DAILY_TOKENS}}
@@ -240,7 +242,7 @@ async def save_settings(changes:dict):
     candidate = {**current,**changes}
     if candidate['provider'] not in ('openai-api','gemini') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
         raise ValueError('Provedor inválido.')
-    if candidate['tts_provider'] not in ('edge','offline','piper','openai') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
+    if candidate['tts_provider'] not in ('edge','offline','piper','openai','fish-audio') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
         raise ValueError('Provedor de áudio inválido.')
     for name in ('model','fallback_model','tts_voice'):
         if not isinstance(candidate[name],str) or len(candidate[name])>120 or not re.fullmatch(r'[a-zA-Z0-9_./:-]*',candidate[name]):

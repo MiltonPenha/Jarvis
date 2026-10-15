@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from core.config import config, settings, provider_key
+from core.fish_voice import FishVoiceError, FishVoiceCancelled
 
 def speech_text(text,limit=700):
     text = re.sub(r'```.*?```',' Os detalhes do código estão na tela. ',text,flags=re.S)
@@ -82,7 +83,10 @@ class AudioManager:
         s = settings()
         provider = provider or s['tts_provider']
         text = speech_text(text)
-        if provider=='piper':
+        if provider=='fish-audio':
+            from core.fish_voice import synthesize
+            await synthesize(text,path,self._cancel)
+        elif provider=='piper':
             from core.neural_voice import neural_voice
             await asyncio.to_thread(neural_voice.synthesize,text,path)
         elif provider=='offline':
@@ -132,6 +136,10 @@ class AudioManager:
                 pass
             sd.stop()
             return {'state':'cancelled' if self._cancel.is_set() else 'completed'}
+        except FishVoiceCancelled:
+            return {'state':'cancelled'}
+        except FishVoiceError as exc:
+            return {'state':'failed','error':str(exc)}
         except Exception as exc:
             # No hidden provider fallback: failures stay visible and text remains usable.
             return {'state':'failed','error':type(exc).__name__+': voz indisponível; veja a configuração.'}

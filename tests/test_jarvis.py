@@ -257,6 +257,82 @@ class MicrophoneTests(unittest.TestCase):
             self.assertIsNone(audio.listen_and_transcribe())
             transcribe.assert_not_called()
 
+class FishAudioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exact_voice_and_explicit_engine_are_sent_with_backend_key(self):
+        import httpx
+        from core.fish_voice import synthesize,VOICE_ID
+        calls=[]
+        def handle(request):
+            calls.append(request)
+            self.assertEqual(str(request.url),'https://api.fish.audio/v1/tts')
+            self.assertEqual(request.headers['Authorization'],'Bearer fixture-fish-key')
+            self.assertEqual(request.headers['model'],'s2.1-pro-free')
+            self.assertEqual(json.loads(request.content)['reference_id'],VOICE_ID)
+            self.assertEqual(VOICE_ID,'a5b93aeddcc948c19ea04f0afe9d178c')
+            return httpx.Response(200,headers={'content-type':'audio/mpeg'},content=b'fixture-audio')
+        path=ROOT/'fish.mp3'
+        with patch('core.fish_voice.provider_key',return_value='fixture-fish-key'),patch.object(config,'FISH_TTS_MODEL','s2.1-pro-free'):
+            await synthesize('Às suas ordens, Senhor.',path,transport=httpx.MockTransport(handle))
+        self.assertEqual(path.read_bytes(),b'fixture-audio');self.assertEqual(len(calls),1)
+
+    async def test_missing_key_or_invalid_engine_does_not_contact_service(self):
+        from core.fish_voice import synthesize,FishVoiceError
+        with patch('core.fish_voice.provider_key',return_value=''),patch('core.fish_voice.httpx.AsyncClient') as client:
+            with self.assertRaisesRegex(FishVoiceError,'FISH_API_KEY'):await synthesize('teste',ROOT/'unused.mp3')
+            client.assert_not_called()
+        with patch('core.fish_voice.provider_key',return_value='fixture'),patch.object(config,'FISH_TTS_MODEL','typo'), \
+             patch('core.fish_voice.httpx.AsyncClient') as client:
+            with self.assertRaisesRegex(FishVoiceError,'FISH_TTS_MODEL'):await synthesize('teste',ROOT/'unused.mp3')
+            client.assert_not_called()
+
+    async def test_service_errors_never_retry_or_expose_provider_body(self):
+        import httpx
+        from core.fish_voice import synthesize,FishVoiceError
+        for status in (401,402,403,404,429,503):
+            with self.subTest(status=status):
+                calls=[]
+                def handle(request):
+                    calls.append(request)
+                    return httpx.Response(status,json={'message':'private-provider-fixture'})
+                with patch('core.fish_voice.provider_key',return_value='fixture'):
+                    with self.assertRaises(FishVoiceError) as error:
+                        await synthesize('teste',ROOT/'error.mp3',transport=httpx.MockTransport(handle))
+                self.assertNotIn('private-provider-fixture',str(error.exception))
+                self.assertEqual(len(calls),1)
+                self.assertFalse((ROOT/'error.mp3').exists())
+
+    async def test_cancel_pending_request_closes_it_without_audio(self):
+        import httpx
+        from core.fish_voice import synthesize,FishVoiceCancelled
+        cancel=threading.Event();started=asyncio.Event();closed=asyncio.Event()
+        async def handle(request):
+            started.set()
+            try:await asyncio.Event().wait()
+            finally:closed.set()
+        with patch('core.fish_voice.provider_key',return_value='fixture'):
+            task=asyncio.create_task(synthesize('teste',ROOT/'cancel.mp3',cancel,transport=httpx.MockTransport(handle)))
+            await asyncio.wait_for(started.wait(),2);cancel.set()
+            with self.assertRaises(FishVoiceCancelled):await asyncio.wait_for(task,2)
+        self.assertTrue(closed.is_set());self.assertFalse((ROOT/'cancel.mp3').exists())
+
+    async def test_non_audio_and_empty_response_are_rejected(self):
+        import httpx
+        from core.fish_voice import synthesize,FishVoiceError
+        for headers,content in (({'content-type':'application/json'},b'{}'),({'content-type':'audio/mpeg'},b'')):
+            with patch('core.fish_voice.provider_key',return_value='fixture'):
+                with self.assertRaises(FishVoiceError):
+                    await synthesize('teste',ROOT/'invalid.mp3',transport=httpx.MockTransport(lambda r:httpx.Response(200,headers=headers,content=content)))
+            self.assertFalse((ROOT/'invalid.mp3').exists())
+
+    async def test_missing_key_is_visible_to_user_without_playback(self):
+        audio=AudioManager()
+        with patch('core.audio_manager.settings',return_value={'tts_provider':'fish-audio'}), \
+             patch('core.fish_voice.provider_key',return_value=''),patch('sounddevice.play') as play:
+            result=await asyncio.to_thread(audio.speak,'Senhor, estou pronto.')
+        self.assertEqual(result['state'],'failed');self.assertIn('FISH_API_KEY',result['error'])
+        play.assert_not_called()
+
+
 class APITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -289,6 +365,18 @@ class APITests(unittest.TestCase):
         after=settings()
         for key in ('provider','model','input_device','stt_provider'):
             self.assertEqual(before[key],after[key])
+
+    def test_fish_voice_preserves_ai_microphone_and_hides_key(self):
+        before=settings()
+        with patch.dict(os.environ,{'FISH_API_KEY':'private-fish-api-fixture'}):
+            response=self.client.post('/api/settings',json={'tts_provider':'fish-audio'})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['fish_voice']['voice_id'],'a5b93aeddcc948c19ea04f0afe9d178c')
+        self.assertTrue(response.json()['credentials']['fish-audio'])
+        self.assertNotIn('private-fish-api-fixture',response.text)
+        for key in ('provider','model','input_device','stt_provider'):
+            self.assertEqual(before[key],settings()[key])
+        self.assertEqual(self.client.post('/api/settings',json={'FISH_API_KEY':'fixture'}).status_code,400)
 
     def test_microphone_selection_is_validated_and_persisted(self):
         device={'id':'WASAPI::fixture headset','name':'fixture headset','index':42}

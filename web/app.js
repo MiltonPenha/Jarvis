@@ -182,6 +182,13 @@ class JarvisHUD extends ReactorVisuals {
   }
   updateVoiceFields() {
     document.getElementById('setting-tts_voice').parentElement.style.display=document.getElementById('setting-tts_provider').value==='edge'?'':'none';
+    const fish=document.getElementById('fish-voice-status');
+    fish.hidden=document.getElementById('setting-tts_provider').value!=='fish-audio';
+    if(!fish.hidden){
+      const voice=this.settings?.fish_voice;
+      fish.textContent=(voice?.title||'Jarvis (UCM) - Português Brasileiro')+' · '+
+        (voice?.configured?'Chave configurada. O texto das respostas será enviado à Fish Audio.':'Falta a chave Fish Audio. Crie em fish.audio/app/api-keys, preencha FISH_API_KEY no .env e reinicie o JARVIS.');
+    }
   }
   setModelOptions(fallback,models,selected='') {
     const select=document.getElementById(fallback?'setting-fallback_model':'setting-model');
