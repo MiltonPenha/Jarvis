@@ -5,7 +5,6 @@ import re
 import subprocess
 import sys
 import time
-from pathlib import Path
 from core.config import config
 from core.safety import atomic_write, checked_path, digest, redact, file_lock
 from core.task_store import TaskStore

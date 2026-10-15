@@ -1,11 +1,8 @@
 :root {
   --primary-gold: #ffb700;
-  --secondary-amber: #ff8800;
   --flame-orange: #ff4800;
-  --bright-core: #fff5cc;
   --glow-gold: rgba(255, 183, 0, 0.5);
   --glow-intense: rgba(255, 136, 0, 0.9);
-  --glow-subtle: rgba(255, 183, 0, 0.15);
   --bg-deep: #03050d;
   --bg-panel: rgba(18, 12, 5, 0.82);
   --border-gold: rgba(255, 183, 0, 0.28);
@@ -13,7 +10,6 @@
   --text-main: #fff2db;
   --text-muted: #b3885c;
   --accent-green: #00ffaa;
-  --accent-purple: #c084fc;
   --font-display: 'Orbitron', sans-serif;
   --font-hud: 'Rajdhani', sans-serif;
   --font-mono: 'Share Tech Mono', monospace;
@@ -734,33 +730,6 @@ body.sci-fi-theme {
   color: var(--text-muted);
 }
 
-.feed-thought {
-  background: rgba(168, 85, 247, 0.08);
-  border: 1px dashed rgba(168, 85, 247, 0.4);
-  border-radius: 4px;
-  padding: 8px 12px;
-  margin: 6px 0 8px 0;
-  font-family: var(--font-mono);
-}
-
-.thought-badge {
-  display: block;
-  color: #c084fc;
-  font-size: 0.65rem;
-  letter-spacing: 1.5px;
-  font-weight: 700;
-  margin-bottom: 4px;
-  text-shadow: 0 0 8px rgba(192, 132, 252, 0.4);
-}
-
-.thought-body {
-  color: #e9d5ff;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  font-style: italic;
-  white-space: pre-wrap;
-}
-
 .entry-content {
   font-family: var(--font-hud);
   font-size: 0.92rem;
@@ -832,6 +801,8 @@ dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-h
 dialog details { margin:12px 0; }
 dialog summary { cursor:pointer; }
 dialog p, .integration-status { color:#d4c6a4; font-size:13px; line-height:1.5; }
+.catalog-status { color:#d4c6a4; font-size:12px; line-height:1.4; min-height:1.4em; }
+dialog select:disabled { opacity:.65; cursor:wait; }
 .memory-row { border:1px solid #63502e; padding:9px; margin:8px 0; border-radius:5px; }
 .task-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px; padding:8px; font-size:12px; }
 .task-toolbar span { flex:1; }

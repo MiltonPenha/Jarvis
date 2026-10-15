@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager,suppress
 import json
 import re
 import secrets
-from fastapi import FastAPI,HTTPException,Request,WebSocket,WebSocketDisconnect
+from fastapi import FastAPI,Request,WebSocket,WebSocketDisconnect
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel,Field
@@ -283,11 +283,6 @@ async def vault_read(path:str):
 async def vault_write(req:NoteRequest):
     return await asyncio.to_thread(obsidian_memory.write,req.path,req.content,req.expected_hash,req.source)
 
-@app.post('/api/memory/open')
-async def vault_open():
-    obsidian_memory.open_vault_folder()
-    return {'status':'opened'}
-
 @app.get('/api/status')
 async def status():
     data = await asyncio.to_thread(system_monitor.get_metrics)
@@ -353,7 +348,7 @@ async def websocket(ws:WebSocket):
         return
     await ws.accept()
     connections.add(ws)
-    await ws.send_json({'type':'init','assistant_name':config.ASSISTANT_NAME,'telemetry':system_monitor.get_metrics()})
+    await ws.send_json({'type':'init','telemetry':system_monitor.get_metrics()})
     try:
         while True:
             raw = await ws.receive_text()

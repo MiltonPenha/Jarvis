@@ -1,7 +1,6 @@
 """Runs inside the official, PM-prepared Hermes environment. JSONL over stdio."""
 import contextlib
 import json
-import os
 from pathlib import Path
 import sys
 import threading
@@ -90,7 +89,6 @@ def run(request):
     from run_agent import AIAgent
     from tools.registry import registry
     from hermes_cli.runtime_provider import resolve_runtime_provider
-    from core.task_store import TaskStore
     from core.config import provider_key
     cancelled = threading.Event()
     agent_ref = []

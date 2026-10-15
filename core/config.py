@@ -16,7 +16,6 @@ class Config:
     BASE_DIR = BASE_DIR
     WEB_DIR = BASE_DIR / 'web'
     COMMANDS_FILE = BASE_DIR / 'commands.json'
-    ENV_FILE = BASE_DIR / '.env'
     DATA_DIR = Path(os.getenv('JARVIS_DATA_DIR', str(BASE_DIR / '.data'))).resolve()
     HERMES_HOME = Path(os.getenv('JARVIS_HERMES_HOME', str(DATA_DIR / 'hermes'))).resolve()
     HERMES_SOURCE = Path(os.getenv('HERMES_SOURCE', str(BASE_DIR / '.runtime/hermes-agent'))).resolve()
@@ -25,10 +24,7 @@ class Config:
     WORKSPACE_ROOTS = [Path(p).resolve() for p in os.getenv('JARVIS_WORKSPACE_ROOTS', str(BASE_DIR / 'workspace')).split(';') if p]
     HOST = os.getenv('HOST', '127.0.0.1')
     PORT = int(os.getenv('PORT', '8000'))
-    ASSISTANT_NAME = os.getenv('JARVIS_NAME', 'JARVIS')
-    USER_NAME = os.getenv('USER_NAME', 'Senhor')
     AUTOSTART_NAME = 'JarvisAI'
-    WAKE_WORDS = ['jarvis', 'jarbas', 'jervis']
     TTS_VOICE = os.getenv('JARVIS_TTS_VOICE', 'pt-BR-AntonioNeural')
     TTS_RATE = os.getenv('JARVIS_TTS_RATE', '-4%')
     TTS_PITCH = os.getenv('JARVIS_TTS_PITCH', '-2Hz')
@@ -38,10 +34,7 @@ class Config:
     OPENAI_TTS_VOICE = os.getenv('OPENAI_TTS_VOICE', 'onyx')
     OPENAI_STT_MODEL = os.getenv('OPENAI_STT_MODEL', '')
     OFFLINE_TTS_RATE = 175
-    OFFLINE_TTS_VOLUME = 1.0
     STT_LANGUAGE = 'pt-BR'
-    MIC_ENERGY_THRESHOLD = int(os.getenv('MIC_ENERGY_THRESHOLD', '1000'))
-    MIC_PAUSE_THRESHOLD = 0.8
     VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.004'))
     INPUT_DEVICE = os.getenv('JARVIS_INPUT_DEVICE') or None
     OUTPUT_DEVICE = os.getenv('JARVIS_OUTPUT_DEVICE') or None

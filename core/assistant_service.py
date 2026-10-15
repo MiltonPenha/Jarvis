@@ -56,7 +56,7 @@ class AssistantService:
                 await self.event(task_id,{'type':'state','state':'PROCESSING'})
                 await self.event(task_id,{'type':'user_command','text':task['prompt']})
                 if not s['model']:
-                    raise ValueError('Escolha um modelo em Configurações. Configure uma chave válida no backend e use Consultar modelos.')
+                    raise ValueError('Escolha e salve um modelo na lista de Configurações. Se a lista não carregar, confira a chave no backend e use Atualizar modelos.')
                 if not provider_key(s['provider']):
                     raise ValueError('Credencial ausente. Configure OPENAI_API_KEY ou GEMINI_API_KEY no backend e reinicie.')
                 started = time.monotonic()

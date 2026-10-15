@@ -164,8 +164,11 @@ async def list_models(provider):
     if provider=='openai-api':
         models = [m['id'] for m in data['data'] if m['id'].startswith(('gpt-','o1','o3','o4')) and not any(x in m['id'] for x in ('audio','tts','transcribe','realtime','search','image'))]
     else:
-        models = [m['name'].removeprefix('models/') for m in data.get('models',[]) if 'generateContent' in m.get('supportedGenerationMethods',[])]
-    return sorted(models)
+        models = [m['name'].removeprefix('models/') for m in data.get('models',[])
+                  if 'generateContent' in m.get('supportedGenerationMethods',[])
+                  and m['name'].removeprefix('models/').startswith('gemini-')
+                  and not any(x in m['name'] for x in ('image','tts','transcribe','computer-use','robotics','nano-banana'))]
+    return sorted(set(models))
 
 if __name__=='__main__':
     prepare_runtime()

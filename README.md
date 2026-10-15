@@ -2,7 +2,7 @@
 
 Assistente pessoal em português brasileiro com o HUD original, FastAPI, voz e **Hermes Agent oficial da Nous Research** como único ciclo de modelo e ferramentas. O antigo agente “inspirado no Hermes”, o histórico em RAM e o fallback Pollinations foram retirados.
 
-Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. **Conversa real com OpenAI/Gemini ainda depende de credenciais válidas:** as chaves herdadas no ambiente retornaram HTTP 401 e 403, respectivamente. Nenhum modelo foi escolhido por suposição. Consulte [a validação e as pendências](docs/VALIDATION.md).
+Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. A chave Gemini atual consultou o catálogo com sucesso e o painel exibiu 19 modelos de conversa. **Uma conversa real com o provedor ainda precisa ser validada após a escolha de um modelo.** Consulte [a validação e as pendências](docs/VALIDATION.md).
 
 ## Iniciar
 
@@ -25,13 +25,13 @@ O script cria `.venv` para o JARVIS e prepara o checkout oficial do Hermes pelo 
 ## Configurar OpenAI e Gemini
 
 1. Edite `.env` localmente e preencha `OPENAI_API_KEY` e/ou `GEMINI_API_KEY` (`GOOGLE_API_KEY` também é aceito). Não cole chaves no chat ou no HUD. Uma chave não vazia no `.env` vence uma variável herdada; campos vazios preservam o ambiente.
-2. Reinicie o JARVIS. Em **CONFIGURAÇÕES**, escolha **OpenAI API** ou **Google Gemini**, clique **Consultar modelos**, selecione um identificador acessível à sua conta e salve. Também é possível definir `JARVIS_PROVIDER` e `JARVIS_MODEL` antes da primeira configuração no painel.
+2. Reinicie o JARVIS. Em **CONFIGURAÇÕES**, escolha **OpenAI API** ou **Google Gemini**. A lista **Modelo** carrega automaticamente; escolha um item e salve. **Atualizar modelos** refaz a consulta. O campo mostra falhas de credencial/rede e mantém a escolha salva quando a consulta falha. Também é possível definir `JARVIS_PROVIDER` e `JARVIS_MODEL` antes da primeira configuração no painel.
 3. O painel mantém as escolhas em `.data/settings.json`. Essas escolhas vencem os defaults de provedor/modelo no `.env`.
 4. O fallback começa desativado. Se habilitado, exige provedor e modelo explícitos, é anunciado e só pode acontecer antes de qualquer ferramenta com efeito ser admitida. Uma falha após efeitos não reexecuta o turno em outro provedor.
 
 O Hermes resolve `openai-api` para a API Responses da OpenAI e `gemini` para seu adaptador nativo Gemini. O nome interno `codex_responses` do Hermes para a primeira rota **não exige assinatura Codex/ChatGPT**: a credencial é a chave da API e o destino é `api.openai.com`. Identificadores e capacidades dependem do catálogo e do acesso da conta. O catálogo é filtrado, mas aparecer na lista não garante acesso à geração ou a todas as ferramentas.
 
-O funcionamento não exige credencial da Anthropic. A extensão futura para endpoint local compatível fica no adaptador/runtime; o painel atual expõe apenas OpenAI e Gemini. Perfis automáticos por qualidade/preço e visão não foram apresentados como capacidades concluídas.
+O funcionamento não exige credencial da Anthropic nem Ollama. O Hermes Agent coordena o modelo escolhido no provedor; o modelo local Hermes 3 não está em execução. O painel atual expõe apenas OpenAI e Gemini. Perfis automáticos por qualidade/preço e visão não foram apresentados como capacidades concluídas. Consulte [a revisão de limpeza](docs/CLEANUP.md) para os itens removidos e a configuração vigente.
 
 ## Usar
 
@@ -109,6 +109,7 @@ O painel mostra uso reportado, chamadas, cache quando disponível, tempo da prim
 .\.venv\Scripts\python.exe scripts/doctor.py --providers
 .\.venv\Scripts\python.exe scripts/validate_voice.py
 .\.venv\Scripts\python.exe -m pip check
+.\.runtime\tools\node-26.7.0-win32-x64\node.exe --test tests/test_model_selectors.cjs
 ```
 
 `doctor --providers` consulta os catálogos, sem gerar texto. `validate_voice` sintetiza uma frase artificial e a transcreve, sem reproduzir áudio ou gravar o microfone. Os testes usam vault e workspace temporários, sem alterar seu vault real. O teste de ciclo Hermes usa um servidor de modelo controlado localmente e está explicitamente separado de validação com a nuvem.

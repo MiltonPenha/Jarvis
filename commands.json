@@ -3,26 +3,22 @@
     {
       "trigger": "modo trabalho",
       "action_type": "open_multiple",
-      "targets": ["code", "https://github.com", "https://chatgpt.com"],
-      "speech_response": "Ativando modo de trabalho, senhor. Carregando ferramentas de desenvolvimento."
+      "targets": ["code", "https://github.com", "https://chatgpt.com"]
     },
     {
       "trigger": "modo relaxar",
       "action_type": "open_multiple",
-      "targets": ["spotify", "https://youtube.com"],
-      "speech_response": "Modo de relaxamento iniciado. Reproduzindo sua mídia."
+      "targets": ["spotify", "https://youtube.com"]
     },
     {
       "trigger": "meu github",
       "action_type": "open_url",
-      "target": "https://github.com",
-      "speech_response": "Acessando seu GitHub, senhor."
+      "target": "https://github.com"
     },
     {
       "trigger": "abrir meu projeto",
       "action_type": "open_folder",
-      "target": "c:\\Users\\PC Gamer\\Desktop\\jarvis",
-      "speech_response": "Abrindo o diretório do projeto Jarvis."
+      "target": "c:\\Users\\PC Gamer\\Desktop\\jarvis"
     }
   ]
 }

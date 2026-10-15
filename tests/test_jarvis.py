@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import threading
 import unittest
@@ -20,7 +19,6 @@ os.environ.update(JARVIS_DATA_DIR=str(ROOT/'data'),JARVIS_HERMES_HOME=str(ROOT/'
 from core.config import config,settings
 from core.task_store import TaskStore
 from core.memory_obsidian import ObsidianMemory
-from core.safety import atomic_write,checked_path,digest,redact
 from core.jarvis_tools import ToolService
 from core.hermes_runtime import HermesRuntime,runtime,worker_env
 from core.hermes_worker import bounded_history
@@ -132,6 +130,30 @@ class PersistenceTests(unittest.TestCase):
             worker=threading.Thread(target=audio.speak,args=('Teste',))
             worker.start();self.assertTrue(started.wait(5));audio.stop();release.set();worker.join(5)
             self.assertFalse(worker.is_alive());play.assert_not_called()
+
+class ModelCatalogTests(unittest.IsolatedAsyncioTestCase):
+    async def test_gemini_catalog_excludes_specialized_models(self):
+        import httpx
+        from unittest.mock import AsyncMock
+        from core.hermes_runtime import list_models
+        entries=[{'name':'models/'+name,'supportedGenerationMethods':['generateContent']} for name in
+                 ('gemini-2.5-flash','gemini-2.5-flash-image','gemini-2.5-pro-preview-tts',
+                  'gemini-3.5-transcribe','lyria-3-pro-preview','gemini-2.5-flash')]
+        entries.append({'name':'models/gemini-embedding','supportedGenerationMethods':['embedContent']})
+        response=httpx.Response(200,json={'models':entries})
+        with patch('core.hermes_runtime.provider_key',return_value='fixture'),patch('core.hermes_runtime.httpx.AsyncClient') as client:
+            client.return_value.__aenter__.return_value.get=AsyncMock(return_value=response)
+            self.assertEqual(await list_models('gemini'),['gemini-2.5-flash'])
+
+    async def test_catalog_authentication_error_is_actionable_and_redacted(self):
+        import httpx
+        from unittest.mock import AsyncMock
+        from core.hermes_runtime import list_models
+        response=httpx.Response(403,json={'error':{'message':'fixture-secret'}})
+        with patch('core.hermes_runtime.provider_key',return_value='fixture-secret'),patch('core.hermes_runtime.httpx.AsyncClient') as client:
+            client.return_value.__aenter__.return_value.get=AsyncMock(return_value=response)
+            with self.assertRaisesRegex(ValueError,'gemini: HTTP 403') as error:await list_models('gemini')
+            self.assertNotIn('fixture-secret',str(error.exception))
 
 class MicrophoneTests(unittest.TestCase):
     def test_saved_headset_survives_device_index_changes(self):

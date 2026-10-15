@@ -7,12 +7,12 @@ class JarvisHUD extends ReactorVisuals {
     this.canvas = document.getElementById('arcCanvas');
     this.ctx = this.canvas.getContext('2d');
     this.eqContainer = document.getElementById('eq-bars');
-    this.numEqBars = 28;
     for (let i=0;i<28;i++) this.eqContainer.appendChild(document.createElement('div')).className='eq-bar';
     this.initSphereParticles(); this.startAnimationLoop();
     this.session = localStorage.getItem('jarvis-session') || crypto.randomUUID();
     localStorage.setItem('jarvis-session',this.session);
     this.activeTask = null; this.continuousMode = false; this.stopping = false;
+    this.modelRequests = {};
     this.feed = document.getElementById('terminal-feed');
     this.feed.replaceChildren();
     this.bind(); this.clock(); this.connect();
@@ -84,7 +84,7 @@ class JarvisHUD extends ReactorVisuals {
   }
   setState(state) {
     this.state=state;
-    const names={IDLE:'PRONTO',STANDBY:'PRONTO',LISTENING:'ESCUTANDO',PROCESSING:'PROCESSANDO',EXECUTING:'EXECUTANDO FERRAMENTA',WAITING:'AGUARDANDO INFORMAÇÃO',SPEAKING:'FALANDO',COMPLETED:'CONCLUÍDO',CANCELLED:'CANCELADO',FAILED:'FALHOU',DISCONNECTED:'DESCONECTADO — RECONECTANDO'};
+    const names={IDLE:'PRONTO',LISTENING:'ESCUTANDO',PROCESSING:'PROCESSANDO',EXECUTING:'EXECUTANDO FERRAMENTA',WAITING:'AGUARDANDO INFORMAÇÃO',SPEAKING:'FALANDO',COMPLETED:'CONCLUÍDO',CANCELLED:'CANCELADO',FAILED:'FALHOU',DISCONNECTED:'DESCONECTADO — RECONECTANDO'};
     document.getElementById('status-text').textContent=names[state]||state;
     document.getElementById('core-state').textContent=names[state]||state;
     document.getElementById('status-badge').className='status-indicator '+(['PROCESSING','EXECUTING'].includes(state)?'processing':state==='LISTENING'?'listening':'');
@@ -120,7 +120,9 @@ class JarvisHUD extends ReactorVisuals {
   }
   addFeedEntry(sender,text,isUser=false) {
     const entry=document.createElement('div');entry.className='feed-entry '+(isUser?'user-msg':'jarvis-msg');
-    const head=document.createElement('div');head.className='entry-header';head.textContent=sender+' · '+new Date().toLocaleTimeString('pt-BR');
+    const head=document.createElement('div');head.className='entry-header';
+    const name=document.createElement('span');name.className='entry-sender';name.textContent=sender;
+    const time=document.createElement('span');time.className='entry-time';time.textContent=new Date().toLocaleTimeString('pt-BR');head.append(name,time);
     const content=document.createElement('div');content.className='entry-content';content.textContent=text||'';
     entry.append(head,content);this.feed.append(entry);
     while(this.feed.children.length>150)this.feed.firstChild.remove();
@@ -159,16 +161,53 @@ class JarvisHUD extends ReactorVisuals {
   async loadSettings() {
     await this.safe(async()=>{
       const s=await this.api('settings');this.settings=s;
+      for(const key of ['provider','fallback_provider','tts_provider','tts_voice','stt_provider'])document.getElementById('setting-'+key).value=s[key];
+      this.setModelOptions(false,[],s.model);
+      this.setModelOptions(true,[],s.fallback_model);
+      document.getElementById('setting-speech_enabled').checked=s.speech_enabled;
+      document.getElementById('integration-status').textContent=`Hermes AIAgent · ${s.provider} / ${s.model||'modelo não escolhido'}`;
+      document.getElementById('diagnostics').textContent=JSON.stringify({credentials:s.credentials,vault:s.vault,workspace_roots:s.workspace_roots,limits:s.limits},null,2);
+      await Promise.all([this.loadModels(),this.loadModels(true),this.loadMicrophones(s)]);
+    });
+  }
+  async loadMicrophones(s) {
+    await this.safe(async()=>{
       const audio=await this.api('audio/devices');const select=document.getElementById('setting-input_device');
       select.replaceChildren();const system=document.createElement('option');system.value='';system.textContent='Padrão do Windows';select.append(system);
       for(const device of audio.inputs){const option=document.createElement('option');option.value=device.id;option.textContent=device.name+' · '+device.hostapi;select.append(option);}
       select.value=s.input_device||'';
       document.getElementById('microphone-status').textContent='Microfone selecionado: '+(audio.selected||'indisponível');
-      for(const key of ['provider','model','fallback_provider','fallback_model','tts_provider','tts_voice','stt_provider'])document.getElementById('setting-'+key).value=s[key];
-      document.getElementById('setting-speech_enabled').checked=s.speech_enabled;
-      document.getElementById('integration-status').textContent=`Hermes AIAgent · ${s.provider} / ${s.model||'modelo não escolhido'}`;
-      document.getElementById('diagnostics').textContent=JSON.stringify({credentials:s.credentials,vault:s.vault,workspace_roots:s.workspace_roots,limits:s.limits},null,2);
     });
+  }
+  setModelOptions(fallback,models,selected='') {
+    const select=document.getElementById(fallback?'setting-fallback_model':'setting-model');
+    select.replaceChildren();
+    const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='Selecione um modelo';select.append(placeholder);
+    for(const model of [...new Set(selected?[selected,...models]:models)]){
+      const option=document.createElement('option');option.value=model;
+      option.textContent=model+(model===selected&&!models.includes(model)?' (configurado; acesso não confirmado)':'');select.append(option);
+    }
+    select.value=selected;
+  }
+  async loadModels(fallback=false) {
+    const role=fallback?'fallback':'primary';
+    const provider=document.getElementById(fallback?'setting-fallback_provider':'setting-provider').value;
+    const select=document.getElementById(fallback?'setting-fallback_model':'setting-model');
+    const status=document.getElementById(fallback?'fallback-models-status':'models-status');
+    const request=this.modelRequests[role]=(this.modelRequests[role]||0)+1;
+    const selected=select.value;
+    select.disabled=true;
+    if(!provider){this.setModelOptions(fallback,[]);status.textContent='Fallback desativado.';return;}
+    status.textContent='Carregando modelos…';
+    try{
+      const result=await this.api('models?provider='+encodeURIComponent(provider));
+      if(request!==this.modelRequests[role])return;
+      this.setModelOptions(fallback,result.models,selected);
+      status.textContent=result.models.length?`${result.models.length} modelos disponíveis. Abra a lista para escolher.`:'Nenhum modelo de conversa disponível para esta conta.';
+    }catch(error){
+      if(request!==this.modelRequests[role])return;
+      this.setModelOptions(fallback,[],selected);status.textContent=error.message;
+    }finally{if(request===this.modelRequests[role])select.disabled=false;}
   }
   async showMemory() {
     const memory=await this.api('memory');const box=document.getElementById('memory-list');box.replaceChildren();
@@ -212,7 +251,8 @@ class JarvisHUD extends ReactorVisuals {
       data.speech_enabled=document.getElementById('setting-speech_enabled').checked;
       await this.api('settings',data);await this.loadSettings();document.getElementById('panel-message').textContent='Configurações salvas e verificadas.';
     });
-    on('discover-models',async()=>{document.getElementById('panel-message').textContent='Consultando modelos disponíveis…';const r=await this.api('models?provider='+document.getElementById('setting-provider').value);const list=document.getElementById('model-options');list.replaceChildren();for(const model of r.models){const opt=document.createElement('option');opt.value=model;list.append(opt);}document.getElementById('panel-message').textContent=`${r.models.length} modelos disponíveis. Escolha um identificador no campo Modelo.`;});
+    on('discover-models',async()=>{await Promise.all([this.loadModels(),this.loadModels(true)]);});
+    for(const fallback of [false,true])document.getElementById(fallback?'setting-fallback_provider':'setting-provider').onchange=()=>this.safe(async()=>{this.setModelOptions(fallback,[]);await this.loadModels(fallback);});
     on('memory-refresh',async()=>this.showMemory());
     on('memory-events-refresh',async()=>{document.getElementById('memory-events').textContent=JSON.stringify(await this.api('memory/events'),null,2);});
     on('memory-add',async()=>{const input=document.getElementById('new-memory');const r=await this.api('memory',{action:'memory_add',content:input.value});if(r.error)throw new Error(r.error);input.value='';await this.showMemory();});

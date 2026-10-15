@@ -4,7 +4,7 @@
 
 O iniciador encerrava sem abrir o HUD quando já havia um servidor ativo. Agora identifica a instância JARVIS pelo `/health` e reabre uma janela de aplicativo Chrome/Edge sem criar outro servidor. Três testes de regressão em `tests/test_launcher.py` passaram. A execução real de `start_jarvis.bat` com a instância ativa retornou normalmente; o endpoint respondeu HTTP 200 e foi identificada uma janela JARVIS do Chrome. O `.env` atualizado foi carregado ao reiniciar a instância ociosa. Esses testes são adicionais aos 26 da implementação inicial descritos abaixo.
 
-Não há resultados de geração real OpenAI/Gemini aprovados. As credenciais herdadas foram recusadas. Testes de transporte/serviço com respostas controladas estão identificados abaixo e não representam desempenho ou qualidade de um modelo de nuvem.
+Não há resultados de geração real OpenAI/Gemini aprovados. Na auditoria inicial, as credenciais herdadas foram recusadas; posteriormente, a chave Gemini atual consultou o catálogo com sucesso. Testes de transporte/serviço com respostas controladas estão identificados abaixo e não representam desempenho ou qualidade de um modelo de nuvem.
 
 ## Verificações executadas
 
@@ -13,8 +13,8 @@ Não há resultados de geração real OpenAI/Gemini aprovados. As credenciais he
 | Projeto original executável | HTTP 200 para UI, telemetria, memória e comando de status antes da migração |
 | Instalação Hermes oficial | PM concluiu, revisão `7bda2a...`; import de `run_agent.AIAgent` aprovado |
 | Roteamento real de configuração | Resolver oficial selecionou `openai-api` → `api.openai.com/v1`, `gemini` → `generativelanguage.googleapis.com/v1beta`; não é teste de geração |
-| Autenticação nos catálogos reais | OpenAI HTTP 401; Gemini HTTP 403; bloqueio externo preciso, sem expor chaves |
-| Suíte automática | **26 testes aprovados** no Python 3.14 da `.venv`; saída local em `.data/validation/tests.txt` |
+| Autenticação nos catálogos reais | Auditoria inicial: OpenAI HTTP 401 e Gemini HTTP 403. Estado posterior: catálogo Gemini HTTP 200, 19 modelos de conversa visíveis no HUD |
+| Suíte automática | **36 testes Python e 4 JavaScript aprovados** após a revisão de limpeza; a saída inicial de 26 testes continua arquivada em `.data/validation/tests.txt` |
 | Dependências próprias | `pip check`: nenhuma dependência quebrada |
 | Compilação e scripts web | `compileall` e `node --check` dos dois scripts da UI aprovados |
 | Hermes → ferramenta → resultado → resposta | AIAgent real contra servidor local de respostas controladas: arquivo de teste gravado, resultado `verified`, ID da chamada preservado e mensagens persistidas |
@@ -31,15 +31,15 @@ Não há resultados de geração real OpenAI/Gemini aprovados. As credenciais he
 | Voz real, sem microfone | Edge sintetizou 21.024 bytes MP3, 24 kHz, 3,5 s; Google Web Speech transcreveu “Jarvis diga o status do sistema” |
 | Cancelamento de áudio | Síntese controlada cancelada antes de finalizar: nenhuma chamada de playback ocorreu |
 
-O teste real de áudio foi feito por `scripts/validate_voice.py` somente com frase artificial, sem reprodução e sem gravar o microfone. Evidência local em `.data/validation/voice.json` e `.data/validation/voice.mp3`. A enumeração encontrou dispositivos de entrada; isso não comprova captura do dispositivo correto.
+O teste de transcrição foi feito por `scripts/validate_voice.py` somente com frase artificial, sem reprodução e sem gravar o microfone. Evidência local em `.data/validation/voice.json` e `.data/validation/voice.mp3`. Posteriormente, uma abertura física de 250 ms confirmou sinal no G522 a 48 kHz, sem salvar/enviar esse áudio; o teste da fala do usuário segue pendente.
 
 ## Cobertura dos 18 fluxos solicitados
 
-1. Conversa principal real: **bloqueada por credencial**.
-2. OpenAI e Gemini reais: **catálogos recusados; geração não aprovada**.
+1. Conversa principal real: **aguarda escolha do modelo e validação de geração**.
+2. OpenAI e Gemini reais: **catálogo Gemini aprovado com a chave atual; geração não aprovada**. A recusa anterior do catálogo Gemini é evidência histórica.
 3. Troca de provedor mantendo estado: mesma SessionDB/MemoryStore por construção e testes de persistência; **troca com dois provedores reais pendente**.
 4. Chamada e interpretação de ferramenta: **aprovada com Hermes real e modelo controlado localmente**.
-5. Entrada/saída de voz: síntese/transcrição artificial **aprovadas**; captura e escuta perceptiva **pendentes**.
+5. Entrada/saída de voz: síntese/transcrição artificial e abertura física do G522 **aprovadas**; reconhecimento da fala do usuário e escuta perceptiva **pendentes**.
 6. Interrupção/cancelamento: **testes de código aprovados**; teste físico de áudio **pendente**.
 7. Preferência após reiniciar: **aprovada em processos separados**.
 8. Corrigir/excluir preferência: **aprovado**.
@@ -56,7 +56,7 @@ O teste real de áudio foi feito por `scripts/validate_voice.py` somente com fra
 
 ## Consumo observado
 
-- Nenhuma geração bem-sucedida nos provedores pagos principais; chamadas de catálogo foram recusadas.
+- Nenhuma geração bem-sucedida nos provedores pagos principais; o catálogo Gemini atual foi consultado com sucesso, sem gerar texto.
 - Os tokens do teste de modelo controlado são números de fixture e ficam somente nos dados temporários de teste, nunca como consumo real.
 - Uma síntese Edge e uma transcrição Google Web Speech de frase artificial foram concluídas. Nenhuma estimativa monetária foi inventada para esses serviços.
 - Não foram configurados preços de modelos. O painel mantém custo desconhecido quando faltam preços/data; custos de voz não estão somados aos tokens do modelo.

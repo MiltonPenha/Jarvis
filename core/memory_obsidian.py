@@ -1,6 +1,5 @@
 """Obsidian is the editable knowledge source. The FTS index is disposable."""
 import json
-import os
 import re
 import sqlite3
 import threading
@@ -17,9 +16,6 @@ class ObsidianMemory:
         self.index_path = Path(index_path or config.DATA_DIR / 'vault-index.sqlite3')
         self.index_path.parent.mkdir(parents=True,exist_ok=True)
         self.lock = threading.RLock()
-        self.knowledge_dir = self.vault_dir / 'Knowledge'
-        self.user_dir = self.vault_dir / 'User'
-        self.tasks_dir = self.vault_dir / 'Tasks'
         with self.db() as db:
             db.executescript('CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,stamp TEXT); CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(path UNINDEXED,line UNINDEXED,content,tokenize="unicode61 remove_diacritics 2");')
 
@@ -100,14 +96,5 @@ class ObsidianMemory:
             sha = atomic_write(path,content)
             self.refresh()
         return {'verified':True,'path':relative,'sha256':sha,'source':source,'updated':datetime.now(timezone.utc).isoformat()}
-
-    def search_memory(self,query,max_results=3):
-        return json.dumps(self.search(query,max_results),ensure_ascii=False)
-
-    def get_user_profile(self):
-        return '\n'.join(p.read_text(encoding='utf-8')[:3000] for p in (self.user_dir/'Perfil.md',self.user_dir/'Preferencias.md') if p.exists())
-
-    def open_vault_folder(self):
-        os.startfile(str(self.vault_dir))
 
 obsidian_memory = ObsidianMemory()

@@ -1,5 +1,4 @@
 import psutil
-import time
 import socket
 import platform
 from datetime import datetime
@@ -59,22 +58,5 @@ class SystemMonitor:
             "net_sent_mb": round(net_io.bytes_sent / (1024 ** 2), 1),
             "net_recv_mb": round(net_io.bytes_recv / (1024 ** 2), 1)
         }
-
-    def get_status_speech(self) -> str:
-        """Generates a natural spoken summary of the system status."""
-        metrics = self.get_metrics()
-        cpu = metrics["cpu_percent"]
-        ram = metrics["ram_percent"]
-        disk_free = metrics["disk_free_gb"]
-        uptime = metrics["uptime"]
-
-        speech = (
-            f"Relatório de status do sistema, senhor: "
-            f"Uso do processador em {int(cpu)} por cento. "
-            f"Memória RAM operando em {int(ram)} por cento de capacidade. "
-            f"Espaço livre no disco principal de {disk_free} gigabytes. "
-            f"Tempo de atividade atual é de {uptime}."
-        )
-        return speech
 
 system_monitor = SystemMonitor()

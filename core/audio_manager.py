@@ -1,15 +1,12 @@
 """One microphone owner and one cancellable playback path. No startup recording."""
 import asyncio
 import io
-import logging
 import re
 import tempfile
 import threading
 import time
 from pathlib import Path
 from core.config import config, settings, provider_key
-
-logger = logging.getLogger('JarvisAudio')
 
 def speech_text(text,limit=700):
     text = re.sub(r'```.*?```',' Os detalhes do código estão na tela. ',text,flags=re.S)
@@ -28,9 +25,7 @@ def speech_text(text,limit=700):
 
 class AudioManager:
     def __init__(self):
-        self.is_listening = False
         self.is_speaking = False
-        self.enabled = True
         self.on_state_change = None
         self.on_audio_level = None
         self._cancel = threading.Event()
@@ -77,10 +72,10 @@ class AudioManager:
         else:
             raise ValueError('Síntese em arquivo não disponível neste provedor.')
 
-    def speak(self,text,wait=True):
+    def speak(self,text):
         text = speech_text(text)
-        if not text or not self.enabled:
-            return {'state':'disabled'}
+        if not text:
+            return {'state':'empty'}
         generation = self._generation
         if not self._speech_lock.acquire(blocking=False):
             return {'state':'busy'}
@@ -215,11 +210,10 @@ class AudioManager:
             return None
 
     def listen_and_transcribe(self):
-        if not self.enabled or self.is_speaking or not self._mic_lock.acquire(blocking=False):
+        if self.is_speaking or not self._mic_lock.acquire(blocking=False):
             return None
         self._cancel.clear()
         generation = self._generation
-        self.is_listening = True
         try:
             self.notify_state('LISTENING')
             audio = self.record_phrase()
@@ -232,7 +226,6 @@ class AudioManager:
             self.last_capture['transcribed']=bool(text)
             return text if generation==self._generation else None
         finally:
-            self.is_listening = False
             self._mic_lock.release()
 
 audio_manager = AudioManager()
