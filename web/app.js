@@ -48,6 +48,11 @@ class JarvisHUD extends ReactorVisuals {
     if(msg.type==='init'||msg.type==='telemetry')this.updateTelemetry(msg.telemetry||msg.data);
     if(msg.type==='state')this.setState(msg.state);
     if(msg.type==='audio_level')this.audioLevel=msg.level;
+    if(msg.type==='audio_diagnostics'){
+      const d=msg.data;
+      document.getElementById('microphone-status').textContent=`Microfone: ${d.device||'indisponível'} · ${d.speech_detected?'fala detectada':'sem fala detectada'}`;
+      document.getElementById('diagnostics').textContent=JSON.stringify({...this.settings,audio_capture:d,credentials:undefined},null,2);
+    }
     if(msg.type==='user_command')this.addFeedEntry('VOCÊ',msg.text,true);
     if(msg.type==='jarvis_response')this.addFeedEntry('J.A.R.V.I.S.',msg.response);
     if(msg.type==='notice')this.addFeedEntry('SISTEMA',msg.text);
@@ -154,6 +159,11 @@ class JarvisHUD extends ReactorVisuals {
   async loadSettings() {
     await this.safe(async()=>{
       const s=await this.api('settings');this.settings=s;
+      const audio=await this.api('audio/devices');const select=document.getElementById('setting-input_device');
+      select.replaceChildren();const system=document.createElement('option');system.value='';system.textContent='Padrão do Windows';select.append(system);
+      for(const device of audio.inputs){const option=document.createElement('option');option.value=device.id;option.textContent=device.name+' · '+device.hostapi;select.append(option);}
+      select.value=s.input_device||'';
+      document.getElementById('microphone-status').textContent='Microfone selecionado: '+(audio.selected||'indisponível');
       for(const key of ['provider','model','fallback_provider','fallback_model','tts_provider','tts_voice','stt_provider'])document.getElementById('setting-'+key).value=s[key];
       document.getElementById('setting-speech_enabled').checked=s.speech_enabled;
       document.getElementById('integration-status').textContent=`Hermes AIAgent · ${s.provider} / ${s.model||'modelo não escolhido'}`;
@@ -198,7 +208,7 @@ class JarvisHUD extends ReactorVisuals {
     on('control-panel-btn',async()=>{document.getElementById('control-panel').showModal();await this.loadSettings();});
     on('close-panel',async()=>document.getElementById('control-panel').close());
     on('save-settings',async()=>{
-      const data={};for(const key of ['provider','model','fallback_provider','fallback_model','tts_provider','tts_voice','stt_provider'])data[key]=document.getElementById('setting-'+key).value;
+      const data={};for(const key of ['provider','model','fallback_provider','fallback_model','tts_provider','tts_voice','stt_provider','input_device'])data[key]=document.getElementById('setting-'+key).value;
       data.speech_enabled=document.getElementById('setting-speech_enabled').checked;
       await this.api('settings',data);await this.loadSettings();document.getElementById('panel-message').textContent='Configurações salvas e verificadas.';
     });

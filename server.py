@@ -226,12 +226,25 @@ async def save_settings(changes:dict):
             raise ValueError('Identificador de modelo/voz inválido.')
     if not isinstance(candidate['speech_enabled'],bool):
         raise ValueError('speech_enabled deve ser booleano.')
+    if not isinstance(candidate['input_device'],str) or len(candidate['input_device'])>300:
+        raise ValueError('Microfone inválido.')
+    if 'input_device' in changes and changes['input_device']:
+        from core.audio_devices import resolve_input
+        resolve_input(changes['input_device'])
     for name in ('input_price_per_million','output_price_per_million'):
         val = candidate[name]
         if val is not None and (not isinstance(val,(int,float)) or not 0<=val<=10000):
             raise ValueError('Preço inválido.')
     atomic_write(config.DATA_DIR/'settings.json',json.dumps(candidate,ensure_ascii=False,indent=2))
     return await get_settings()
+
+@app.get('/api/audio/devices')
+async def audio_devices():
+    from core.audio_devices import input_devices,resolve_input
+    devices=await asyncio.to_thread(input_devices)
+    try:selected=resolve_input(settings()['input_device'])['id']
+    except ValueError:selected=None
+    return {'inputs':devices,'selected':selected,'last_capture':audio_manager.last_capture}
 
 @app.get('/api/models')
 async def models(provider:str):
@@ -302,17 +315,23 @@ async def listen(session,continuous=False):
         while True:
             if not assistant.lock.locked() and not audio_manager.is_speaking:
                 text = await asyncio.to_thread(audio_manager.listen_and_transcribe)
+                await broadcast({'type':'audio_diagnostics','data':audio_manager.last_capture})
                 if text:
                     if not continuous or re.search(r'\b(jarvis|jarbas|jervis)\b',text,re.I):
                         await assistant.submit(text,session)
                 elif not continuous:
-                    await broadcast({'type':'notice','text':'Nenhuma fala reconhecida. Tente novamente.'})
+                    captured=audio_manager.last_capture
+                    name=captured.get('device','selecionado')
+                    message=(f'Nenhuma fala detectada no microfone {name}. Confira o mute do headset e a seleção em Configurações.'
+                             if not captured.get('speech_detected') else 'Áudio capturado, mas a transcrição não reconheceu palavras. Tente uma frase curta e clara.')
+                    if captured.get('reason')!='cancelled':
+                        await broadcast({'type':'notice','text':message})
             if not continuous or not voice_continuous:
                 break
             await asyncio.sleep(.5)
     except Exception as exc:
         failed=True
-        await broadcast({'type':'notice','text':'Microfone/transcrição indisponível: '+type(exc).__name__})
+        await broadcast({'type':'notice','text':'Microfone/transcrição indisponível: '+redact(str(exc))[:400]})
         await broadcast({'type':'state','state':'FAILED'})
     finally:
         if not failed and not assistant.lock.locked():

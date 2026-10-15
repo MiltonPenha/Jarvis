@@ -133,6 +133,58 @@ class PersistenceTests(unittest.TestCase):
             worker.start();self.assertTrue(started.wait(5));audio.stop();release.set();worker.join(5)
             self.assertFalse(worker.is_alive());play.assert_not_called()
 
+class MicrophoneTests(unittest.TestCase):
+    def test_saved_headset_survives_device_index_changes(self):
+        from core.audio_devices import resolve_input
+        devices=[{'id':'WASAPI::controller','index':1,'name':'controller','hostapi':'Windows WASAPI'},
+                 {'id':'WASAPI::headset','index':30,'name':'headset','hostapi':'Windows WASAPI'}]
+        with patch('core.audio_devices.input_devices',return_value=devices),patch('sounddevice.default.device',[1,6]):
+            self.assertEqual(resolve_input()['name'],'controller')
+            self.assertEqual(resolve_input('WASAPI::headset')['name'],'headset')
+            devices[1]['index']=42
+            self.assertEqual(resolve_input('WASAPI::headset')['index'],42)
+            with self.assertRaisesRegex(ValueError,'indisponível'):resolve_input('unplugged headset')
+
+    def test_headset_uses_native_rate_when_16khz_is_unsupported(self):
+        import sounddevice as sd
+        from core.audio_devices import capture_parameters
+        device={'index':30,'sample_rate':48000}
+        with patch('core.audio_devices.resolve_input',return_value=device), \
+             patch('sounddevice.check_input_settings',side_effect=[sd.PortAudioError('Invalid sample rate'),None]) as check:
+            self.assertEqual(capture_parameters('headset'),(device,48000))
+            self.assertEqual([c.kwargs['samplerate'] for c in check.call_args_list],[16000,48000])
+
+    def test_quiet_voice_captured_at_native_rate_then_stops_on_silence(self):
+        import itertools
+        import numpy as np
+        from unittest.mock import MagicMock
+        audio=AudioManager();device={'index':30,'name':'headset','hostapi':'Windows WASAPI'}
+        stream=MagicMock();stream.__enter__.return_value=stream
+        speech=np.full((2400,1),.006,dtype=np.float32)
+        quiet=np.zeros_like(speech)
+        stream.read.side_effect=itertools.chain([(speech,False)],itertools.repeat((quiet,False)))
+        with patch('core.audio_devices.capture_parameters',return_value=(device,48000)), \
+             patch('sounddevice.InputStream',return_value=stream) as opened, \
+             patch('core.audio_manager.time.monotonic',side_effect=itertools.count(0,.05)), \
+             patch.object(config,'VAD_THRESHOLD',.004):
+            captured=audio.record_phrase()
+        self.assertIsNotNone(captured)
+        self.assertGreater(float(captured.max()),.005)
+        self.assertEqual(opened.call_args.kwargs['samplerate'],48000)
+        self.assertTrue(audio.last_capture['speech_detected'])
+        self.assertEqual(audio.last_capture['reason'],'silence')
+
+    def test_transcription_receives_actual_capture_rate_and_skips_no_signal(self):
+        audio=AudioManager();audio.last_capture={'sample_rate':48000}
+        samples=object()
+        with patch.object(audio,'record_phrase',return_value=samples), \
+             patch.object(audio,'transcribe_audio',return_value='Olá Jarvis') as transcribe:
+            self.assertEqual(audio.listen_and_transcribe(),'Olá Jarvis')
+            transcribe.assert_called_once_with(samples,samplerate=48000)
+        with patch.object(audio,'record_phrase',return_value=None),patch.object(audio,'transcribe_audio') as transcribe:
+            self.assertIsNone(audio.listen_and_transcribe())
+            transcribe.assert_not_called()
+
 class APITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -157,6 +209,19 @@ class APITests(unittest.TestCase):
         response=self.client.get('/api/settings')
         self.assertEqual(response.status_code,200)
         self.assertNotIn('OPENAI_API_KEY',response.text)
+
+    def test_microphone_selection_is_validated_and_persisted(self):
+        device={'id':'WASAPI::fixture headset','name':'fixture headset','index':42}
+        with patch('core.audio_devices.resolve_input',return_value=device), \
+             patch('core.audio_devices.input_devices',return_value=[device]):
+            response=self.client.post('/api/settings',json={'input_device':device['id']})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(settings()['input_device'],device['id'])
+            listing=self.client.get('/api/audio/devices').json()
+            self.assertEqual(listing['selected'],device['id'])
+        with patch('core.audio_devices.resolve_input',side_effect=ValueError('Microfone indisponível')):
+            self.assertEqual(self.client.post('/api/settings',json={'input_device':'missing'}).status_code,400)
+        self.client.post('/api/settings',json={'input_device':''})
 
     def test_task_without_model_fails_visibly_and_deduplicates(self):
         body={'id':'api-no-model','session':'api','command':'Olá'}

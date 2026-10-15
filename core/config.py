@@ -42,7 +42,7 @@ class Config:
     STT_LANGUAGE = 'pt-BR'
     MIC_ENERGY_THRESHOLD = int(os.getenv('MIC_ENERGY_THRESHOLD', '1000'))
     MIC_PAUSE_THRESHOLD = 0.8
-    VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.015'))
+    VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.004'))
     INPUT_DEVICE = os.getenv('JARVIS_INPUT_DEVICE') or None
     OUTPUT_DEVICE = os.getenv('JARVIS_OUTPUT_DEVICE') or None
     MAX_STEPS = int(os.getenv('JARVIS_MAX_STEPS', '6'))
@@ -62,6 +62,7 @@ def settings():
         'fallback_provider': os.getenv('JARVIS_FALLBACK_PROVIDER', ''), 'fallback_model': os.getenv('JARVIS_FALLBACK_MODEL', ''),
         'tts_provider': config.TTS_PROVIDER, 'tts_voice': config.TTS_VOICE,
         'stt_provider': config.STT_PROVIDER, 'speech_enabled': True,
+        'input_device':config.INPUT_DEVICE or '',
         'input_price_per_million': None, 'output_price_per_million': None, 'prices_updated': None,
     }
     path = config.DATA_DIR / 'settings.json'

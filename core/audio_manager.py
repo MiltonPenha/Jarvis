@@ -39,6 +39,7 @@ class AudioManager:
         self._whisper = None
         self._pyttsx_engine = None
         self._generation = 0
+        self.last_capture = {}
 
     def notify_state(self,state):
         if self.on_state_change:
@@ -135,18 +136,23 @@ class AudioManager:
     def record_phrase(self,samplerate=16000,max_seconds=12,silence_limit=.9):
         import sounddevice as sd
         import numpy as np
+        from core.audio_devices import capture_parameters
+        device,samplerate=capture_parameters(settings()['input_device'],samplerate)
+        self.last_capture={'device':device['name'],'hostapi':device['hostapi'],'sample_rate':samplerate,
+                           'threshold':config.VAD_THRESHOLD,'peak_rms':0.,'speech_detected':False,'reason':'listening'}
         block = int(samplerate*.05)
         chunks = []
         preroll = []
         speech_start = None
         last_voice = None
         started = time.monotonic()
-        with sd.InputStream(samplerate=samplerate,channels=1,dtype='float32',blocksize=block,device=config.INPUT_DEVICE) as stream:
+        with sd.InputStream(samplerate=samplerate,channels=1,dtype='float32',blocksize=block,device=device['index']) as stream:
             while not self._cancel.is_set():
                 chunk,overflow = stream.read(block)
                 if self.is_speaking:
                     return None
                 rms = float(np.sqrt(np.mean(chunk**2)))
+                self.last_capture['peak_rms']=max(self.last_capture['peak_rms'],rms)
                 if self.on_audio_level:
                     self.on_audio_level(min(1.,rms*10))
                 current = time.monotonic()
@@ -154,15 +160,19 @@ class AudioManager:
                     if speech_start is None:
                         speech_start = current
                         chunks.extend(preroll)
+                        self.last_capture['speech_detected']=True
                     last_voice = current
                 if speech_start is not None:
                     chunks.append(chunk.copy())
                     if current-last_voice>silence_limit or current-speech_start>=max_seconds:
+                        self.last_capture['reason']='silence' if current-last_voice>silence_limit else 'max_duration'
                         break
                 else:
                     preroll = (preroll+[chunk.copy()])[-4:]
                     if current-started>8:
+                        self.last_capture['reason']='no_signal'
                         return None
+        if self._cancel.is_set():self.last_capture['reason']='cancelled'
         return np.concatenate(chunks,axis=0) if chunks and not self._cancel.is_set() else None
 
     def transcribe_audio(self,audio_data,samplerate=16000):
@@ -171,6 +181,11 @@ class AudioManager:
             return None
         provider = settings()['stt_provider']
         if provider=='whisper-local':
+            if samplerate!=16000:
+                import numpy as np
+                samples=audio_data.flatten()
+                audio_data=np.interp(np.arange(round(len(samples)*16000/samplerate))*samplerate/16000,
+                                     np.arange(len(samples)),samples).astype(np.float32)
             if self._whisper is None:
                 from faster_whisper import WhisperModel
                 self._whisper = WhisperModel('base',device='cpu',compute_type='int8')
@@ -210,8 +225,11 @@ class AudioManager:
             audio = self.record_phrase()
             if self._cancel.is_set():
                 return None
+            if audio is None:
+                return None
             self.notify_state('PROCESSING')
-            text = self.transcribe_audio(audio)
+            text = self.transcribe_audio(audio,samplerate=self.last_capture.get('sample_rate',16000))
+            self.last_capture['transcribed']=bool(text)
             return text if generation==self._generation else None
         finally:
             self.is_listening = False

@@ -63,10 +63,18 @@ O teste real de áudio foi feito por `scripts/validate_voice.py` somente com fra
 
 ## Procedimento manual de áudio
 
-1. Inicie JARVIS, confirme o dispositivo padrão do Windows ou configure `JARVIS_INPUT_DEVICE`/`JARVIS_OUTPUT_DEVICE` pelo nome PortAudio. O microfone inicia desligado.
+1. Inicie JARVIS e escolha a entrada em **CONFIGURAÇÕES → Microfone**. O microfone inicia desligado. A preferência salva vence `JARVIS_INPUT_DEVICE`; saída opcional continua em `JARVIS_OUTPUT_DEVICE`.
 2. Em ambiente silencioso, clique no microfone e diga uma frase curta. Observe escutando → processando e confira a transcrição na interface. Com credencial inválida, o erro do modelo deve aparecer sem travar o HUD.
 3. Com chave/modelo válidos, peça um resumo curto e avalie articulação, português, pausas e volume. Compare voz Edge e offline; avalie OpenAI somente após configurar seu modelo de áudio e orçamento.
 4. Durante a fala, use **DESLIGAR MICROFONE / PARAR VOZ**; o áudio deve parar. **INTERROMPER** também cancela a tarefa. Se a síntese ainda estiver na rede, ela deve ser descartada quando chegar.
 5. Ative escuta contínua e diga “Jarvis, que horas são?”. Deixe o assistente falar e confirme que não surge novo pedido com a própria resposta. Uma frase sem a palavra de ativação não deve iniciar tarefa.
 6. Repita com ruído moderado. Ajuste `JARVIS_VAD_THRESHOLD` no backend se necessário. O VAD atual usa energia/silêncio; não é um detector neural de fala nem oferece interrupção por voz em duplex completo.
 7. Desative a escuta, feche e reabra a aba; confirme que não há captura automática e que o histórico permanece acessível.
+
+## Correção do microfone G522 — 15/10/2026
+
+O padrão de entrada era o Wireless Controller, enquanto o usuário usa o G522 sem fio. A preferência local agora seleciona `Windows WASAPI::Microfone (G522 LIGHTSPEED - Wireless Mode)` por identificador de API/nome, preservado quando o índice muda. O dispositivo rejeitou 16 kHz e aceitou sua frequência nativa de 48 kHz. Uma abertura física de 250 ms recebeu 12.000 amostras, sem overflow; o áudio foi descartado, sem gravação em arquivo ou envio para transcrição.
+
+Há seleção de entrada no painel, diagnóstico de fala detectada e mensagens distintas para ausência de sinal e transcrição sem palavras. A sensibilidade padrão passou de 0,015 para 0,004 RMS; um `JARVIS_VAD_THRESHOLD` explícito continua prevalecendo. Os cinco testes novos cobrem seleção independente do padrão do Windows/índice, fallback para frequência nativa, fala de baixa amplitude com término por silêncio, frequência repassada à transcrição e validação/persistência pela API. Reconhecimento real da voz do usuário permanece pendente de seu teste no HUD.
+
+Após a correção, `unittest discover -s tests -v` passou os 34 testes em 16,821 s. Python e JavaScript passaram na verificação de sintaxe. O servidor reiniciado com `--no-browser` respondeu online e confirmou pela API o G522 salvo/selecionado e a presença do seletor no HUD.

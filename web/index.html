@@ -229,9 +229,10 @@
       <label>Síntese<select id="setting-tts_provider"><option value="edge">Edge TTS (Microsoft, online)</option><option value="offline">Windows (offline)</option><option value="openai">OpenAI (modelo no backend)</option></select></label>
       <label>Voz Edge<input id="setting-tts_voice" value="pt-BR-AntonioNeural"></label>
       <label>Transcrição<select id="setting-stt_provider"><option value="google-web">Google Web Speech (online)</option><option value="whisper-local">Whisper local (instalação opcional)</option><option value="openai">OpenAI (modelo no backend)</option></select></label>
+      <label>Microfone<select id="setting-input_device"><option value="">Padrão do Windows</option></select></label>
       <label><input type="checkbox" id="setting-speech_enabled"> Falar respostas</label>
     </div><datalist id="model-options"></datalist><button id="discover-models">Consultar modelos</button><button id="save-settings">Salvar configurações</button>
-    <p>Voz curta; texto completo no terminal. O áudio usa o microfone e os alto-falantes deste computador.</p></section>
+    <p>Voz curta; texto completo no terminal. O áudio usa o microfone e os alto-falantes deste computador.</p><p id="microphone-status" role="status"></p></section>
     <section><h3>Memória essencial · Hermes</h3><button id="memory-refresh">Consultar memória</button><div id="memory-list"></div><label>Preferência explícita<textarea id="new-memory" maxlength="1000"></textarea></label><button id="memory-add">Lembrar e verificar</button><details><summary>Alterações de memória</summary><button id="memory-events-refresh">Consultar correções</button><pre id="memory-events"></pre></details></section>
     <section><h3>Obsidian · conhecimento e fontes</h3><label>Buscar notas<input id="vault-query"></label><button id="vault-search">Buscar</button><div id="vault-results"></div><label>Caminho da nota<input id="note-path" placeholder="Knowledge/Minha nota.md"></label><label>Conteúdo<textarea id="note-content" rows="7"></textarea></label><button id="vault-save">Salvar nota</button><p>Notas grandes são exibidas por trechos e não podem ser editadas parcialmente neste painel.</p></section>
     <section><h3>Tarefas e checkpoints</h3><button id="tasks-refresh">Atualizar tarefas</button><div id="task-list"></div></section>
