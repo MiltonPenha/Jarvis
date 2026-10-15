@@ -14,6 +14,7 @@ TEST_DIR = tempfile.TemporaryDirectory(prefix='jarvis-test-')
 ROOT = Path(TEST_DIR.name)
 os.environ.update(JARVIS_DATA_DIR=str(ROOT/'data'),JARVIS_HERMES_HOME=str(ROOT/'hermes'),
                   JARVIS_PROVIDER='openai-api',JARVIS_MODEL='',JARVIS_FALLBACK_PROVIDER='',JARVIS_FALLBACK_MODEL='',
+                  JARVIS_TTS_PROVIDER='piper',JARVIS_STT_PROVIDER='whisper-local',
                   OBSIDIAN_VAULT_PATH=str(ROOT/'vault'),JARVIS_WORKSPACE_ROOTS=str(ROOT/'workspace'))
 (ROOT/'workspace').mkdir()
 
@@ -257,6 +258,76 @@ class MicrophoneTests(unittest.TestCase):
             self.assertIsNone(audio.listen_and_transcribe())
             transcribe.assert_not_called()
 
+class QwenVoiceTests(unittest.TestCase):
+    def test_cancel_before_loading_does_not_spawn(self):
+        from core.qwen_voice import QwenVoice,QwenVoiceCancelled
+        event=threading.Event();event.set();voice=QwenVoice()
+        with patch('core.qwen_voice.subprocess.Popen') as spawn:
+            with self.assertRaises(QwenVoiceCancelled):voice.prepare(event)
+            spawn.assert_not_called()
+
+    def test_worker_env_has_no_api_keys_and_gpu_handshake_is_rejected(self):
+        import io
+        from unittest.mock import MagicMock
+        from core.qwen_voice import QwenVoice,QwenVoiceError
+        base=ROOT/'qwen-fixture';folder=base/'.runtime/voice-lab/model';folder.mkdir(parents=True,exist_ok=True)
+        (folder/'manifest.json').write_text('{}')
+        process=MagicMock();process.poll.return_value=None
+        process.stdout=io.StringIO(json.dumps({'state':'ready','providers':['CUDAExecutionProvider']})+'\n')
+        voice=QwenVoice()
+        with patch.object(config,'BASE_DIR',base),patch.dict(os.environ,{'PRIVATE_API_KEY':'fixture-secret'}), \
+             patch('core.qwen_voice.subprocess.Popen',return_value=process) as spawn,patch.object(voice,'close') as close:
+            with self.assertRaisesRegex(QwenVoiceError,'CPU'):voice.prepare()
+            env=spawn.call_args.kwargs['env']
+            self.assertEqual(env['CUDA_VISIBLE_DEVICES'],'-1');self.assertNotIn('PRIVATE_API_KEY',env)
+            self.assertNotIn('GEMINI_API_KEY',env);self.assertNotIn('FISH_API_KEY',env)
+            self.assertGreaterEqual(close.call_count,2)
+
+    def test_prepared_worker_is_reused_without_loading_again(self):
+        from unittest.mock import MagicMock
+        from core.qwen_voice import QwenVoice
+        voice=QwenVoice();voice._process=MagicMock();voice._process.poll.return_value=None
+        voice._ready=True;voice._channel=object()
+        with patch('core.qwen_voice.subprocess.Popen') as spawn,patch.object(voice,'_release_later'):
+            voice.prepare();voice.prepare();spawn.assert_not_called()
+
+    def test_memory_pressure_stops_inference_wait(self):
+        import queue
+        from types import SimpleNamespace
+        from core.qwen_voice import QwenVoice,QwenVoiceError
+        with patch('core.qwen_voice.psutil.virtual_memory',return_value=SimpleNamespace(available=1024**3)):
+            with self.assertRaisesRegex(QwenVoiceError,'RAM'):QwenVoice()._wait(queue.Queue(),None,float('inf'))
+
+    def test_cancel_removes_partial_output_and_closes_worker(self):
+        import queue
+        from unittest.mock import MagicMock
+        from core.qwen_voice import QwenVoice,QwenVoiceCancelled
+        voice=QwenVoice();voice._process=MagicMock();path=ROOT/'partial-qwen.wav';path.write_bytes(b'partial')
+        with patch.object(voice,'_prepare',return_value=queue.Queue()), \
+             patch.object(voice,'_wait',side_effect=QwenVoiceCancelled),patch.object(voice,'close') as close:
+            with self.assertRaises(QwenVoiceCancelled):voice.synthesize('Senhor.',path)
+            close.assert_called_once();self.assertFalse(path.exists())
+
+    def test_cancel_while_waiting_for_worker_eof_is_not_a_failure(self):
+        from unittest.mock import MagicMock
+        from core.qwen_voice import QwenVoice,QwenVoiceCancelled
+        event=threading.Event();channel=MagicMock()
+        def eof(**kwargs):
+            event.set()
+            return {'state':'closed'}
+        channel.get.side_effect=eof
+        with self.assertRaises(QwenVoiceCancelled):QwenVoice()._wait(channel,event,float('inf'))
+
+    def test_idle_release_waits_until_request_finishes(self):
+        from core.qwen_voice import QwenVoice
+        voice=QwenVoice()
+        with patch.object(voice,'close') as close:
+            with voice._request_lock:
+                other=threading.Thread(target=voice._idle);other.start();other.join(2)
+                close.assert_not_called()
+            voice._idle();close.assert_called_once()
+
+
 class FishAudioTests(unittest.IsolatedAsyncioTestCase):
     async def test_exact_voice_and_explicit_engine_are_sent_with_backend_key(self):
         import httpx
@@ -377,6 +448,14 @@ class APITests(unittest.TestCase):
         for key in ('provider','model','input_device','stt_provider'):
             self.assertEqual(before[key],settings()[key])
         self.assertEqual(self.client.post('/api/settings',json={'FISH_API_KEY':'fixture'}).status_code,400)
+
+    def test_qwen_selection_preserves_ai_stt_and_microphone(self):
+        before=settings()
+        response=self.client.post('/api/settings',json={'tts_provider':'qwen-local'})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['qwen_voice']['device'],'CPU')
+        for key in ('provider','model','input_device','stt_provider'):
+            self.assertEqual(before[key],settings()[key])
 
     def test_microphone_selection_is_validated_and_persisted(self):
         device={'id':'WASAPI::fixture headset','name':'fixture headset','index':42}

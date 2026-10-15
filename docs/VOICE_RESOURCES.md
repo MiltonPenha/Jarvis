@@ -2,9 +2,19 @@
 
 ## Resultado e decisão
 
-O Qwen3-TTS 0.6B Base foi testado de verdade, com ONNX INT4, CPU e a amostra pública da referência Fish Audio `a5b93aeddcc948c19ea04f0afe9d178c`. Gerou um WAV válido, mas levou **47,179 s** para uma frase de **1,68 s**. Com os limites usados, não foi considerado adequado para conversa e **não foi ativado no assistente**. Essa conclusão se aplica a esta implementação, hardware, limites e carga; não é um benchmark de todas as implementações Qwen ou de GPU.
+**Atualização após esclarecer a restrição de VRAM:** Qwen CPU foi integrado e selecionado com oito threads. A restrição anterior a dois processadores lógicos deixou de ser necessária. O teste do motor integrado gerou duas frases curtas em 7,652 s e 7,503 s, com pico de 1.658,74 MiB na árvore e média de 26,32% da CPU total (pico 54,11%, incluindo carga). A comparação com 12 threads não trouxe melhora consistente: 8,919/9,041 s, contra 10,470/8,063 s no teste ONNX de oito threads anterior à integração. São execuções com carga externa variável, não um ensaio controlado de escalabilidade.
 
-Piper/Faber, já instalado, ficou muito mais leve e rápido, mas tem outro timbre. A escolha atual Fish Audio foi preservada para não substituir silenciosamente a voz específica solicitada. Gemini, Whisper, G522, memória e credenciais não foram alterados. Nenhuma API de geração foi chamada, nenhum microfone foi gravado e nenhum áudio foi reproduzido automaticamente.
+O perfil integrado usa `ORT_ENABLE_ALL`, sem espera ativa dos pools, oito threads, cache do modelo e do condicionamento da referência. Nenhum fornecedor de GPU é permitido; CPU é confirmado na inicialização do trabalhador. Há cerca de 1,5 GiB residentes em cache, liberados após três minutos sem uso, ao cancelar ou ao encerrar. Uma amostra maior, de 49 caracteres, levou 26,836 s para 3,92 s de áudio. Portanto, execução local sem VRAM está validada, mas a latência continua relevante. O teste dessa amostra coincidiu com outros testes do projeto, além dos programas do usuário.
+
+No relatório integrado, `summary` e as amostras periódicas abrangem toda a árvore, incluindo o processo do modelo. Os eventos `ready`/`synthesis` são emitidos pelo chamador e seus campos locais de RAM/tempo de CPU não incluem os filhos; não devem ser usados como consumo do modelo. A API do servidor reiniciado confirmou `qwen-local` pronto, CPU/oito threads e 1.513,4 MiB residentes no trabalhador, preservando Gemini `gemini-3.6-flash`, Whisper e G522. O reinício foi feito sem abrir outra janela do JARVIS.
+
+Cancelamento real foi reconhecido em 0,234 s desde o agendamento de uma interrupção de 0,2 s; o arquivo parcial foi removido e o trabalhador fechado. A corrida entre cancelamento e EOF foi coberta por teste de regressão. 57 testes Python e 6 JavaScript passaram. Nenhum áudio foi reproduzido ou microfone gravado. Gemini e Whisper foram preservados. Amostra: `.data/validation/jarvis-qwen-cpu.wav`; evidência real: `.data/validation/qwen-cpu-integration.json`; perfil integrado: `.data/validation/qwen-cpu_integrated-resources.json`.
+
+Os resultados abaixo registram o **teste inicial com duas threads**, anterior à integração.
+
+O Qwen3-TTS 0.6B Base foi testado de verdade, com ONNX INT4, CPU e a amostra pública da referência Fish Audio `a5b93aeddcc948c19ea04f0afe9d178c`. Gerou um WAV válido, mas levou **47,179 s** para uma frase de **1,68 s**. Com aqueles limites, inicialmente não foi considerado adequado para conversa e não foi ativado nessa etapa. Essa conclusão se aplica àquela configuração; o perfil atual está descrito acima.
+
+Piper/Faber, já instalado, ficou muito mais leve e rápido, mas tem outro timbre. Na etapa inicial a escolha Fish Audio foi preservada. Gemini, Whisper, G522, memória e credenciais não foram alterados. Nenhuma API de geração foi chamada, nenhum microfone foi gravado e nenhum áudio foi reproduzido automaticamente.
 
 ## Carga e método
 
@@ -32,7 +42,7 @@ A afinidade em dois processadores lógicos corresponde a cerca de 12,5% da capac
 
 As frases são diferentes: Qwen gerou “Às suas ordens, Senhor.”, enquanto Piper gerou “Às suas ordens, Senhor. Estou pronto para ajudar, com calma e atenção.”. A comparação mostra que o Qwen testado foi lento mesmo com menos texto; não é comparação controlada de qualidade entre modelos com duração igual.
 
-O processo Qwen foi encerrado ao fim do teste, liberando seu modelo da memória. Os pesos e dependências ficam isolados em `.runtime/voice-lab`, sem modificar o ambiente principal ou carregar na inicialização do JARVIS. A configuração Fish ativa continua exigindo a chave Fish Audio.
+O processo Qwen daquele teste foi encerrado ao fim, liberando seu modelo da memória. Os pesos e dependências ficam isolados em `.runtime/voice-lab`, sem modificar o ambiente principal. No perfil integrado atual, são carregados na inicialização quando Qwen é a voz selecionada e liberados depois de ociosidade; a opção Fish continua exigindo sua própria chave.
 
 Uma execução negativa com prazo de 1 s foi interrompida em 1,104 s (`time_limit`, código 15 do trabalhador). A inspeção posterior confirmou zero trabalhadores de benchmark restantes e preservação de Gemini `gemini-3.6-flash`, Whisper e seleção Fish Audio pela API do servidor. A verificação de sintaxe Python e `git diff --check` passaram. O motor do produto não foi modificado neste teste.
 

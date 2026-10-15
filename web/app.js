@@ -181,6 +181,9 @@ class JarvisHUD extends ReactorVisuals {
     });
   }
   updateVoiceFields() {
+    const qwen=document.getElementById('qwen-voice-status');
+    qwen.hidden=document.getElementById('setting-tts_provider').value!=='qwen-local';
+    if(!qwen.hidden)qwen.textContent='Voz recriada localmente a partir da amostra JARVIS escolhida. Usa CPU e RAM do sistema, sem GPU nem API de voz. A geração pode levar alguns segundos; o resultado pode diferir da voz original.';
     document.getElementById('setting-tts_voice').parentElement.style.display=document.getElementById('setting-tts_provider').value==='edge'?'':'none';
     const fish=document.getElementById('fish-voice-status');
     fish.hidden=document.getElementById('setting-tts_provider').value!=='fish-audio';

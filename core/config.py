@@ -37,6 +37,8 @@ class Config:
     OPENAI_TTS_VOICE = os.getenv('OPENAI_TTS_VOICE', 'onyx')
     OPENAI_STT_MODEL = os.getenv('OPENAI_STT_MODEL', '')
     FISH_TTS_MODEL = os.getenv('FISH_TTS_MODEL', 's2.1-pro-free')
+    QWEN_THREADS = max(1,min(16,int(os.getenv('JARVIS_QWEN_THREADS','8'))))
+    QWEN_IDLE_SECONDS = 180
     STT_LANGUAGE = 'pt-BR'
     VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.004'))
     INPUT_DEVICE = os.getenv('JARVIS_INPUT_DEVICE') or None

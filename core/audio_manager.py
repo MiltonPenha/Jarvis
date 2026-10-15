@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from core.config import config, settings, provider_key
 from core.fish_voice import FishVoiceError, FishVoiceCancelled
+from core.qwen_voice import qwen_voice, QwenVoiceError, QwenVoiceCancelled
 
 def speech_text(text,limit=700):
     text = re.sub(r'```.*?```',' Os detalhes do código estão na tela. ',text,flags=re.S)
@@ -44,6 +45,7 @@ class AudioManager:
     def stop(self):
         self._generation += 1
         self._cancel.set()
+        qwen_voice.close()
         try:
             import sounddevice as sd
             sd.stop()
@@ -83,7 +85,9 @@ class AudioManager:
         s = settings()
         provider = provider or s['tts_provider']
         text = speech_text(text)
-        if provider=='fish-audio':
+        if provider=='qwen-local':
+            await asyncio.to_thread(qwen_voice.synthesize,speech_text(text,220),path,self._cancel)
+        elif provider=='fish-audio':
             from core.fish_voice import synthesize
             await synthesize(text,path,self._cancel)
         elif provider=='piper':
@@ -118,11 +122,11 @@ class AudioManager:
                 return {'state':'cancelled'}
             self._cancel.clear()
             self.is_speaking = True
-            self.notify_state('SPEAKING')
+            self.notify_state('PROCESSING')
             provider = settings()['tts_provider']
             import sounddevice as sd
             import soundfile as sf
-            with tempfile.NamedTemporaryFile(suffix='.wav' if provider in ('offline','piper') else '.mp3',delete=False) as f:
+            with tempfile.NamedTemporaryFile(suffix='.wav' if provider in ('offline','piper','qwen-local') else '.mp3',delete=False) as f:
                 path = Path(f.name)
             asyncio.run(self.synthesize(text,path,provider))
             if self._cancel.is_set():
@@ -130,15 +134,16 @@ class AudioManager:
             data,rate = sf.read(path,dtype='float32')
             if generation!=self._generation:
                 return {'state':'cancelled'}
+            self.notify_state('SPEAKING')
             sd.play(data,rate,device=config.OUTPUT_DEVICE)
             deadline = time.monotonic()+len(data)/rate
             while time.monotonic()<deadline and not self._cancel.wait(.05):
                 pass
             sd.stop()
             return {'state':'cancelled' if self._cancel.is_set() else 'completed'}
-        except FishVoiceCancelled:
+        except (FishVoiceCancelled,QwenVoiceCancelled):
             return {'state':'cancelled'}
-        except FishVoiceError as exc:
+        except (FishVoiceError,QwenVoiceError) as exc:
             return {'state':'failed','error':str(exc)}
         except Exception as exc:
             # No hidden provider fallback: failures stay visible and text remains usable.

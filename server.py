@@ -32,8 +32,12 @@ async def warm_transcription():
 
 async def warm_voice():
     try:
-        from core.neural_voice import neural_voice
-        await asyncio.to_thread(neural_voice.warmup)
+        if settings()['tts_provider']=='qwen-local':
+            from core.qwen_voice import qwen_voice
+            await asyncio.to_thread(qwen_voice.prepare,audio_manager._cancel)
+        else:
+            from core.neural_voice import neural_voice
+            await asyncio.to_thread(neural_voice.warmup)
     except Exception as exc:
         await broadcast({'type':'notice','text':'Voz neural local indisponível: '+redact(str(exc))[:300]})
 
@@ -78,7 +82,7 @@ async def lifespan(app):
     audio_manager.on_audio_level = level
     periodic = asyncio.create_task(telemetry())
     warmup=asyncio.create_task(warm_transcription()) if settings()['stt_provider']=='whisper-local' else None
-    voice_warmup=asyncio.create_task(warm_voice()) if settings()['tts_provider']=='piper' else None
+    voice_warmup=asyncio.create_task(warm_voice()) if settings()['tts_provider'] in ('piper','qwen-local') else None
     try:
         yield
     finally:
@@ -228,8 +232,10 @@ async def history(session:str='default'):
 async def get_settings():
     s = settings()
     from core.fish_voice import voice_status
+    from core.qwen_voice import qwen_voice
     return {**s,'credentials':{p:bool(provider_key(p)) for p in ('openai-api','gemini','fish-audio')},
         'fish_voice':voice_status(),
+        'qwen_voice':qwen_voice.status(),
         'vault':str(obsidian_memory.vault_dir),'workspace_roots':[str(p) for p in config.WORKSPACE_ROOTS],
         'limits':{'steps':config.MAX_STEPS,'output_tokens_per_call':config.MAX_OUTPUT_TOKENS,'context_chars':config.MAX_CONTEXT_CHARS,
                   'task_seconds':config.TASK_TIMEOUT,'daily_tasks':config.MAX_DAILY_TASKS,'daily_tokens_soft':config.MAX_DAILY_TOKENS}}
@@ -242,7 +248,7 @@ async def save_settings(changes:dict):
     candidate = {**current,**changes}
     if candidate['provider'] not in ('openai-api','gemini') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
         raise ValueError('Provedor inválido.')
-    if candidate['tts_provider'] not in ('edge','offline','piper','openai','fish-audio') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
+    if candidate['tts_provider'] not in ('edge','offline','piper','openai','fish-audio','qwen-local') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
         raise ValueError('Provedor de áudio inválido.')
     for name in ('model','fallback_model','tts_voice'):
         if not isinstance(candidate[name],str) or len(candidate[name])>120 or not re.fullmatch(r'[a-zA-Z0-9_./:-]*',candidate[name]):

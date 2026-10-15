@@ -2,7 +2,7 @@
 
 Assistente pessoal em português brasileiro com o HUD original, FastAPI, voz e **Hermes Agent oficial da Nous Research** como único ciclo de modelo e ferramentas. O antigo agente “inspirado no Hermes”, o histórico em RAM e o fallback Pollinations foram retirados.
 
-Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. O usuário selecionou `gemini-3.6-flash` e recebeu uma resposta real. A voz padrão agora é neural local (Piper/Faber), com transcrição Whisper local. Consulte [a validação e as pendências](docs/VALIDATION.md).
+Estado da implementação em 15/10/2026: execução local, memória, ferramentas, fila e voz verificadas. O usuário selecionou `gemini-3.6-flash` e recebeu uma resposta real. A configuração atual usa voz Qwen local somente em CPU, a partir da referência JARVIS escolhida, com transcrição Whisper local. Consulte [a validação e as pendências](docs/VALIDATION.md).
 
 ## Iniciar
 
@@ -92,15 +92,16 @@ O servidor aceita somente localhost, verifica Host/Origin e usa cookie HttpOnly/
 ## Voz e custo
 
 - **Edge TTS**: implementação preservada, agora com voz `pt-BR-AntonioNeural`, ritmo calmo e texto limpo. Envia o texto à Microsoft via projeto `edge-tts`; depende desse serviço online e não oferece o mesmo contrato de uma API comercial. Código do `edge-tts` usa predominantemente LGPLv3; a licença do cliente não é licença irrestrita do serviço.
+- **Qwen local (seleção atual)**: referência JARVIS recriada com Qwen 0.6B ONNX INT4. Usa oito threads de CPU e cerca de 1,6 GiB de RAM do sistema, sem GPU, API de voz ou cobrança por tokens. O modelo é reutilizado e liberado após três minutos ocioso. A síntese tem espera relevante: aproximadamente 7,5 s para uma frase de 1,7 s; uma frase maior levou 26,8 s. A semelhança deve ser avaliada pela amostra. Prepare com `.venv/Scripts/python.exe scripts/setup_qwen_voice.py` e selecione Qwen local no painel; esse setup preserva as preferências existentes.
 - **Fish Audio (voz escolhida)**: “Jarvis (UCM) - Português Brasileiro”, identificador fixo `a5b93aeddcc948c19ea04f0afe9d178c`. Exige `FISH_API_KEY` no `.env` e reinício. O texto da resposta vai à Fish Audio para síntese; não recebe o microfone. O motor explícito é `s2.1-pro-free`, sujeito ao acesso/limites da conta. Sem chave ou em erro, a mensagem fica visível e não há troca automática de voz/motor. [Criar chave](https://fish.audio/app/api-keys).
 - **Piper/Faber local (alternativa manual)**: voz neural pt-BR, com ritmo mais pausado e síntese em CPU. Modelo e fonemizador são preparados na inicialização quando selecionado; depois não há download ou serviço externo na síntese. Os pesos têm cerca de 63 MB. O perfil de fala usa `JARVIS_PIPER_LENGTH_SCALE=1.18`.
 - **Windows local (opcional)**: SAPI, voz brasileira instalada (Maria neste computador). Continua disponível por escolha explícita, sem fallback automático para ela.
 - **OpenAI áudio**: API oficial; exige `OPENAI_TTS_MODEL`/`OPENAI_STT_MODEL`, tem custo separado do raciocínio e usa `OPENAI_API_KEY`. Modelos não são presumidos.
 - **Transcrição local (padrão)**: Whisper `base` multilíngue, CPU/int8 e quatro threads. O modelo foi preparado em `.data/models/whisper-base`; a captura não faz downloads e usa somente arquivos locais. A instância é carregada na inicialização sem ligar o microfone e reutilizada nos próximos pedidos. Google Web Speech/OpenAI continuam como opções explícitas online.
 
-O raciocínio continua no Gemini pela API e a transcrição usa Whisper local. Por escolha do usuário, a voz específica do link usa a API Fish Audio. A integração está preparada, mas a geração real aguarda a chave do usuário. `scripts/setup_voice.ps1` prepara e seleciona a alternativa local Piper/Whisper, preservando IA, credenciais e microfone; executá-lo troca a seleção da Fish Audio para Piper. Consulte [a configuração de áudio](docs/AUDIO_LOCAL.md).
+O raciocínio continua no Gemini pela API e a transcrição usa Whisper local. A voz atual é recriada localmente a partir da amostra do link com Qwen em CPU. Fish Audio permanece uma opção online para a referência exata do catálogo, ainda sem geração real por falta de chave. `scripts/setup_voice.ps1` prepara e seleciona a alternativa Piper/Whisper, preservando IA, credenciais e microfone; executá-lo troca a voz ativa para Piper. Consulte [a configuração de áudio](docs/AUDIO_LOCAL.md).
 
-O teste Qwen local em CPU com recursos limitados gerou áudio, mas ficou lento e não foi ativado. Medições reais de CPU, RAM e tempo com os demais programas abertos estão em [VOICE_RESOURCES.md](docs/VOICE_RESOURCES.md).
+Após o usuário esclarecer que a restrição era VRAM, a voz Qwen foi integrada e selecionada com oito threads de CPU. Medições reais de CPU, RAM e tempo com os demais programas abertos estão em [VOICE_RESOURCES.md](docs/VOICE_RESOURCES.md).
 
 A fala remove Markdown, código, URLs e logs, limita aproximadamente 700 caracteres e preserva o texto completo na tela. A interrupção impede que uma síntese cancelada comece a tocar. A captura tenta 16 kHz e usa a frequência nativa quando necessário, preservando essa frequência na transcrição. O G522 foi aberto fisicamente a 48 kHz com sinal recebido; o reconhecimento da voz do usuário e a avaliação perceptiva ainda precisam de teste manual. Há evidência técnica de síntese Edge e transcrição Google em [VALIDATION.md](docs/VALIDATION.md).
 

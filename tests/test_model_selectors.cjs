@@ -68,3 +68,12 @@ test('Fish voice shows key setup status and hides unrelated voice input',()=>{
   assert.equal(get('fish-voice-status').hidden,true);
   assert.equal(get('setting-tts_voice').parentElement.style.display,'');
 });
+
+test('local Qwen voice shows CPU-only mode without Fish key instructions',()=>{
+  const {hud,get}=setup();get('setting-tts_provider').value='qwen-local';
+  hud.updateVoiceFields();
+  assert.equal(get('qwen-voice-status').hidden,false);
+  assert.match(get('qwen-voice-status').textContent,/sem GPU/);
+  assert.equal(get('fish-voice-status').hidden,true);
+  assert.equal(get('setting-tts_voice').parentElement.style.display,'none');
+});

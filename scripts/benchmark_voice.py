@@ -25,7 +25,8 @@ def emit(**values):
 def worker(args):
     import psutil
     process = psutil.Process()
-    process.cpu_affinity(process.cpu_affinity()[-args.threads:])
+    if args.threads <= 2:
+        process.cpu_affinity(process.cpu_affinity()[-args.threads:])
     if os.name == 'nt':
         process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
     os.environ.update(OMP_NUM_THREADS=str(args.threads), OPENBLAS_NUM_THREADS=str(args.threads),
@@ -40,7 +41,15 @@ def worker(args):
     socket.create_connection = offline
 
     started = time.monotonic()
-    if args.engine == 'qwen':
+    if args.engine == 'qwen-cpu':
+        os.environ['JARVIS_QWEN_THREADS']=str(args.threads)
+        from core.qwen_voice import qwen_voice
+        import atexit
+        atexit.register(qwen_voice.close)
+        qwen_voice.prepare()
+        synthesize = qwen_voice.synthesize
+        emit(stage='providers',providers=['CPUExecutionProvider'])
+    elif args.engine == 'qwen':
         lab = ROOT/'.runtime/voice-lab'
         sys.path.insert(0, str(lab/'packages'))
         sys.path.insert(0, str(lab))
@@ -52,7 +61,10 @@ def worker(args):
             options.intra_op_num_threads = args.threads
             options.inter_op_num_threads = 1
             options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            options.graph_optimization_level = (ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                if args.optimize == 'all' else ort.GraphOptimizationLevel.ORT_ENABLE_BASIC)
+            options.add_session_config_entry('session.intra_op.allow_spinning', '0')
+            options.add_session_config_entry('session.inter_op.allow_spinning', '0')
             options.enable_cpu_mem_arena = False
             options.enable_mem_pattern = False
             options.log_severity_level = 3
@@ -88,7 +100,7 @@ def worker(args):
     emit(stage='ready', load_seconds=round(time.monotonic()-started, 3),
          rss_mib=round(process.memory_info().rss/2**20, 2), cpu_seconds=round(time.process_time(), 3))
     for i in range(args.iterations):
-        target = ROOT/'.data/validation'/f'{args.engine}-resource-sample-{i+1}.wav'
+        target = ROOT/'.data/validation'/f'{args.engine}{args.tag}-resource-sample-{i+1}.wav'
         begin = time.monotonic()
         cpu_begin = time.process_time()
         synthesize(TEXT if args.engine == 'piper' else 'Às suas ordens, Senhor.', target)
@@ -118,7 +130,7 @@ def benchmark(args):
     baseline = [psutil.cpu_percent(interval=.5) for _ in range(10)]
     baseline_memory = psutil.virtual_memory()
     result = {'engine': args.engine, 'logical_cpus': psutil.cpu_count(),
-        'limits': {'threads': args.threads, 'rss_mib': args.rss_limit_mib,
+        'limits': {'threads': args.threads, 'optimization': 'all' if args.engine=='qwen-cpu' else args.optimize, 'rss_mib': args.rss_limit_mib,
                    'min_available_gib': args.minimum_free_gib, 'timeout_seconds': args.timeout,
                    'priority': 'below-normal', 'device': 'CPU only'},
         'baseline': {'cpu_mean_percent': round(statistics.mean(baseline), 2),
@@ -130,11 +142,12 @@ def benchmark(args):
         raise RuntimeError('Insufficient free RAM for the bounded benchmark.')
     env = {k:v for k,v in os.environ.items() if not any(w in k.upper() for w in ('API_KEY','TOKEN','SECRET','PASSWORD'))}
     env['PYTHONIOENCODING'] = 'utf-8'
-    log_path = folder/f'{args.engine}-resource-worker.log'
+    log_path = folder/f'{args.engine}{args.tag}-resource-worker.log'
     started = time.monotonic()
     with log_path.open('w', encoding='utf-8') as log:
         child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--worker', '--engine', args.engine,
-            '--threads', str(args.threads), '--iterations', str(args.iterations)], cwd=str(ROOT), env=env,
+            '--threads', str(args.threads), '--iterations', str(args.iterations), '--tag', args.tag,
+            '--optimize', args.optimize], cwd=str(ROOT), env=env,
             stdout=log, stderr=log, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         process = psutil.Process(child.pid)
         previous_cpu = 0.
@@ -194,7 +207,7 @@ def benchmark(args):
             'mean_process_cpu_percent_total':round(statistics.mean(s['process_cpu_percent_total'] for s in samples[1:] or samples),2),
             'peak_process_cpu_percent_total':max(s['process_cpu_percent_total'] for s in samples),
             'minimum_available_ram_gib':min(s['available_ram_gib'] for s in samples)}
-    target=folder/f'{args.engine}-resources.json'
+    target=folder/f'{args.engine}{args.tag}-resources.json'
     target.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     emit(report=str(target), **{k:v for k,v in result.items() if k not in ('samples',)})
 
@@ -202,13 +215,17 @@ def benchmark(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true')
-    parser.add_argument('--engine', choices=('piper','qwen'), required=True)
-    parser.add_argument('--threads', type=int, choices=(1,2), default=2)
+    parser.add_argument('--engine', choices=('piper','qwen','qwen-cpu'), required=True)
+    parser.add_argument('--threads', type=int, choices=range(1,17), default=2)
+    parser.add_argument('--optimize', choices=('basic','all'), default='basic')
+    parser.add_argument('--tag', default='')
     parser.add_argument('--iterations', type=int, choices=range(1,6), default=3)
     parser.add_argument('--rss-limit-mib', type=int, default=2300)
     parser.add_argument('--minimum-free-gib', type=float, default=1.5)
     parser.add_argument('--timeout', type=int, default=120)
     args=parser.parse_args()
+    if args.tag and not all(c.isalnum() or c in '-_' for c in args.tag):
+        parser.error('tag must contain only letters, numbers, hyphens or underscores')
     worker(args) if args.worker else benchmark(args)
 
 
