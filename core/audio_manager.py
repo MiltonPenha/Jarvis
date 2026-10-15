@@ -1,279 +1,220 @@
-import os
-import io
-import time
-import math
-import queue
-import logging
+"""One microphone owner and one cancellable playback path. No startup recording."""
 import asyncio
-import threading
+import io
+import logging
+import re
 import tempfile
+import threading
+import time
 from pathlib import Path
-from typing import Callable, Optional
+from core.config import config, settings, provider_key
 
-import numpy as np
-import sounddevice as sd
-import soundfile as sf
-import speech_recognition as sr
-import edge_tts
-import pyttsx3
+logger = logging.getLogger('JarvisAudio')
 
-from core.config import config
-
-logger = logging.getLogger("JarvisAudio")
-logging.basicConfig(level=logging.INFO)
+def speech_text(text,limit=700):
+    text = re.sub(r'```.*?```',' Os detalhes do código estão na tela. ',text,flags=re.S)
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)',r'\1',text)
+    text = re.sub(r'https?://\S+','',text)
+    text = re.sub(r'<[^>]+>','',text)
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith(('|','Traceback','File "'))]
+    text = re.sub(r'[`*_#>~]','', ' '.join(lines))
+    text = re.sub(r'\s+',' ',text).strip()
+    if len(text)>limit:
+        shortened = text[:limit]
+        point = max(shortened.rfind('.'),shortened.rfind('!'),shortened.rfind('?'))
+        text = shortened[:point+1] if point>limit//2 else shortened.rsplit(' ',1)[0]+'.'
+        text += ' Os detalhes completos estão na tela.'
+    return text
 
 class AudioManager:
     def __init__(self):
         self.is_listening = False
         self.is_speaking = False
-        self.should_stop = False
-        self._recognizer = sr.Recognizer()
-        self._recognizer.energy_threshold = config.MIC_ENERGY_THRESHOLD
-        self._recognizer.pause_threshold = config.MIC_PAUSE_THRESHOLD
-        
-        # Audio playback queue
-        self.speech_queue = queue.Queue()
-        self._playback_thread = None
-        
-        # Offline TTS engine (pyttsx3)
+        self.enabled = True
+        self.on_state_change = None
+        self.on_audio_level = None
+        self._cancel = threading.Event()
+        self._mic_lock = threading.Lock()
+        self._speech_lock = threading.Lock()
+        self._whisper = None
         self._pyttsx_engine = None
-        self._init_pyttsx()
-        
-        # Callbacks for UI updates
-        self.on_state_change: Optional[Callable[[str], None]] = None
-        self.on_audio_level: Optional[Callable[[float], None]] = None
-        self.on_transcription: Optional[Callable[[str, bool], None]] = None
-        
-        # Sound effects cache
-        self._wake_chime = self._generate_sci_fi_chime(rising=True)
-        self._confirm_chime = self._generate_sci_fi_chime(rising=False)
-        
-        # Temp dir for TTS
-        self.temp_dir = Path(tempfile.gettempdir()) / "jarvis_tts"
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._generation = 0
 
-    def _init_pyttsx(self):
-        try:
-            self._pyttsx_engine = pyttsx3.init()
-            self._pyttsx_engine.setProperty('rate', config.OFFLINE_TTS_RATE)
-            self._pyttsx_engine.setProperty('volume', config.OFFLINE_TTS_VOLUME)
-            voices = self._pyttsx_engine.getProperty('voices')
-            for v in voices:
-                if 'pt' in v.id.lower() or 'brazil' in v.name.lower() or 'maria' in v.name.lower():
-                    self._pyttsx_engine.setProperty('voice', v.id)
-                    break
-        except Exception as e:
-            logger.warning(f"Não foi possível inicializar pyttsx3: {e}")
-            self._pyttsx_engine = None
-
-    def _generate_sci_fi_chime(self, rising: bool = True) -> tuple[np.ndarray, int]:
-        """Generates a high-tech synthesized sound cue."""
-        sr_rate = 44100
-        duration = 0.18
-        t = np.linspace(0, duration, int(sr_rate * duration), False)
-        
-        if rising:
-            freq1, freq2 = 800.0, 1400.0
-            wave1 = 0.3 * np.sin(2 * np.pi * freq1 * t[:len(t)//2]) * np.exp(-12 * t[:len(t)//2])
-            wave2 = 0.4 * np.sin(2 * np.pi * freq2 * t[len(t)//2:]) * np.exp(-10 * t[len(t)//2:])
-            audio = np.concatenate([wave1, wave2])
-        else:
-            freq1, freq2 = 1200.0, 950.0
-            wave1 = 0.35 * np.sin(2 * np.pi * freq1 * t[:len(t)//2]) * np.exp(-10 * t[:len(t)//2])
-            wave2 = 0.25 * np.sin(2 * np.pi * freq2 * t[len(t)//2:]) * np.exp(-12 * t[len(t)//2:])
-            audio = np.concatenate([wave1, wave2])
-            
-        audio = audio.astype(np.float32)
-        return audio, sr_rate
-
-    def play_chime(self, wake: bool = True):
-        """Plays futuristic audio feedback."""
-        try:
-            data, fs = self._wake_chime if wake else self._confirm_chime
-            sd.play(data, fs)
-        except Exception as e:
-            logger.debug(f"Erro ao tocar chime: {e}")
-
-    def notify_state(self, state: str):
-        """Notifies current assistant status (IDLE, LISTENING, PROCESSING, SPEAKING)."""
+    def notify_state(self,state):
         if self.on_state_change:
-            try:
-                self.on_state_change(state)
-            except Exception as e:
-                logger.error(f"Erro no callback de estado: {e}")
+            self.on_state_change(state)
 
-    def speak(self, text: str, wait: bool = True):
-        """Speaks text using natural edge-tts with pyttsx3 offline fallback."""
-        if not text or not text.strip():
-            return
-            
-        logger.info(f"JARVIS Falando: {text}")
-        self.is_speaking = True
-        self.notify_state("SPEAKING")
-        
-        # Audio file path
-        filename = self.temp_dir / f"speech_{int(time.time()*1000)}.mp3"
-        spoken_successfully = False
-        
-        # Try Edge-TTS (high quality neural voice)
+    def stop(self):
+        self._generation += 1
+        self._cancel.set()
         try:
-            async def _synthesize():
-                communicate = edge_tts.Communicate(
-                    text=text,
-                    voice=config.TTS_VOICE,
-                    rate=config.TTS_RATE,
-                    pitch=config.TTS_PITCH
-                )
-                await communicate.save(str(filename))
-                
-            asyncio.run(_synthesize())
-            
-            if filename.exists() and filename.stat().st_size > 0:
-                data, fs = sf.read(str(filename))
-                sd.play(data, fs)
-                if wait:
-                    sd.wait()
-                spoken_successfully = True
-        except Exception as e:
-            logger.warning(f"Edge-TTS indisponível, usando fallback local: {e}")
-
-        # Fallback to pyttsx3 if edge-tts failed
-        if not spoken_successfully and self._pyttsx_engine:
-            try:
-                self._pyttsx_engine.say(text)
-                self._pyttsx_engine.runAndWait()
-                spoken_successfully = True
-            except Exception as ex:
-                logger.error(f"Erro no fallback pyttsx3: {ex}")
-
-        # Clean up temporary audio file
-        try:
-            if filename.exists():
-                filename.unlink(missing_ok=True)
+            import sounddevice as sd
+            sd.stop()
         except Exception:
             pass
-            
-        self.is_speaking = False
-        self.notify_state("IDLE")
+        if self._pyttsx_engine:
+            try:
+                self._pyttsx_engine.stop()
+            except Exception:
+                pass
 
-    def record_phrase(self, samplerate: int = 16000, max_seconds: int = 10, silence_limit: float = 1.0) -> Optional[np.ndarray]:
-        """
-        Records microphone audio with dynamic Voice Activity Detection (VAD).
-        Waits for voice and stops when silence is detected.
-        """
-        block_duration = 0.05  # 50ms blocks
-        block_size = int(samplerate * block_duration)
-        
-        voice_started = False
-        silence_start_time = None
-        recorded_chunks = []
-        start_time = time.time()
-        
-        energy_threshold = 0.015 # threshold for normalized float32 audio
-        
-        with sd.InputStream(samplerate=samplerate, channels=1, dtype='float32', blocksize=block_size) as stream:
-            while not self.should_stop:
-                if self.is_speaking:
-                    # Do not listen while JARVIS is speaking to avoid self-triggering
-                    time.sleep(0.1)
-                    continue
+    async def synthesize(self,text,path,provider=None):
+        s = settings()
+        provider = provider or s['tts_provider']
+        text = speech_text(text)
+        if provider=='edge':
+            import edge_tts
+            voice = s['tts_voice']
+            await asyncio.wait_for(edge_tts.Communicate(text,voice,rate=config.TTS_RATE,pitch=config.TTS_PITCH).save(str(path)),25)
+        elif provider=='openai':
+            from openai import AsyncOpenAI
+            if not config.OPENAI_TTS_MODEL:
+                raise ValueError('Configure OPENAI_TTS_MODEL antes de usar voz OpenAI.')
+            async with AsyncOpenAI(api_key=provider_key('openai-api'),timeout=25,max_retries=1) as client:
+                result = await client.audio.speech.create(model=config.OPENAI_TTS_MODEL,voice=config.OPENAI_TTS_VOICE,input=text)
+                path.write_bytes(result.content)
+        else:
+            raise ValueError('Síntese em arquivo não disponível neste provedor.')
 
-                chunk, overflowed = stream.read(block_size)
-                rms = np.sqrt(np.mean(chunk**2))
-                
-                # Report volume level for HUD animation
-                if self.on_audio_level:
-                    norm_level = min(1.0, float(rms * 10))
-                    self.on_audio_level(norm_level)
-                
-                # Check voice activity
-                if rms > energy_threshold:
-                    if not voice_started:
-                        voice_started = True
-                    silence_start_time = None
-                    recorded_chunks.append(chunk.copy())
-                else:
-                    if voice_started:
-                        recorded_chunks.append(chunk.copy())
-                        if silence_start_time is None:
-                            silence_start_time = time.time()
-                        elif time.time() - silence_start_time > silence_limit:
-                            # Silence reached after speech
-                            break
-                    else:
-                        # Keep a small buffer before speech begins (last 200ms)
-                        if len(recorded_chunks) > 4:
-                            recorded_chunks.pop(0)
-                        recorded_chunks.append(chunk.copy())
-
-                # Max timeout protection
-                if voice_started and (time.time() - start_time > max_seconds):
-                    break
-                elif not voice_started and (time.time() - start_time > 30):
-                    # No voice detected in 30 seconds
-                    return None
-
-        if not recorded_chunks or not voice_started:
-            return None
-
-        audio_full = np.concatenate(recorded_chunks, axis=0)
-        return audio_full
-
-    def transcribe_audio(self, audio_data: np.ndarray, samplerate: int = 16000) -> Optional[str]:
-        """Transcribes recorded audio to text via Google Speech API with Whisper fallback."""
-        if audio_data is None or len(audio_data) == 0:
-            return None
-
+    def speak(self,text,wait=True):
+        text = speech_text(text)
+        if not text or not self.enabled:
+            return {'state':'disabled'}
+        generation = self._generation
+        if not self._speech_lock.acquire(blocking=False):
+            return {'state':'busy'}
+        path = None
         try:
-            # Convert float32 [-1.0, 1.0] to int16 PCM bytes
-            audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
-            byte_io = io.BytesIO()
-            with sf.SoundFile(byte_io, mode='w', samplerate=samplerate, channels=1, format='WAV', subtype='PCM_16') as f:
-                f.write(audio_int16)
-            byte_io.seek(0)
-            
-            # Read via SpeechRecognition
-            with sr.AudioFile(byte_io) as source:
-                sr_audio = self._recognizer.record(source)
+            if generation!=self._generation:
+                return {'state':'cancelled'}
+            self._cancel.clear()
+            self.is_speaking = True
+            self.notify_state('SPEAKING')
+            provider = settings()['tts_provider']
+            if provider=='offline':
+                import pyttsx3
+                engine = pyttsx3.init()
+                self._pyttsx_engine = engine
+                engine.setProperty('rate',config.OFFLINE_TTS_RATE)
+                for voice in engine.getProperty('voices'):
+                    if 'brazil' in voice.name.lower() or 'pt-br' in voice.id.lower():
+                        engine.setProperty('voice',voice.id)
+                        break
+                if not self._cancel.is_set():
+                    engine.say(text)
+                    engine.runAndWait()
+            else:
+                import sounddevice as sd
+                import soundfile as sf
+                with tempfile.NamedTemporaryFile(suffix='.mp3',delete=False) as f:
+                    path = Path(f.name)
+                asyncio.run(self.synthesize(text,path,provider))
+                if self._cancel.is_set():
+                    return {'state':'cancelled'}
+                data,rate = sf.read(path,dtype='float32')
+                # Generation is checked after network synthesis; cancelled audio never starts.
+                if generation!=self._generation:
+                    return {'state':'cancelled'}
+                sd.play(data,rate,device=config.OUTPUT_DEVICE)
+                # Waiting in short slices permits a hard playback stop.
+                deadline = time.monotonic()+len(data)/rate
+                while time.monotonic()<deadline and not self._cancel.wait(.05):
+                    pass
+                sd.stop()
+            return {'state':'cancelled' if self._cancel.is_set() else 'completed'}
+        except Exception as exc:
+            # No hidden provider fallback: failures stay visible and text remains usable.
+            return {'state':'failed','error':type(exc).__name__+': voz indisponível; veja a configuração.'}
+        finally:
+            if path:
+                path.unlink(missing_ok=True)
+            self._pyttsx_engine = None
+            self.is_speaking = False
+            self._speech_lock.release()
 
-            # Transcribe via Google STT (free, high speed, Brazilian Portuguese)
-            text = self._recognizer.recognize_google(sr_audio, language=config.STT_LANGUAGE)
-            if text:
-                logger.info(f"Reconhecido (Google STT): {text}")
-                return text.strip()
+    def record_phrase(self,samplerate=16000,max_seconds=12,silence_limit=.9):
+        import sounddevice as sd
+        import numpy as np
+        block = int(samplerate*.05)
+        chunks = []
+        preroll = []
+        speech_start = None
+        last_voice = None
+        started = time.monotonic()
+        with sd.InputStream(samplerate=samplerate,channels=1,dtype='float32',blocksize=block,device=config.INPUT_DEVICE) as stream:
+            while not self._cancel.is_set():
+                chunk,overflow = stream.read(block)
+                if self.is_speaking:
+                    return None
+                rms = float(np.sqrt(np.mean(chunk**2)))
+                if self.on_audio_level:
+                    self.on_audio_level(min(1.,rms*10))
+                current = time.monotonic()
+                if rms>config.VAD_THRESHOLD:
+                    if speech_start is None:
+                        speech_start = current
+                        chunks.extend(preroll)
+                    last_voice = current
+                if speech_start is not None:
+                    chunks.append(chunk.copy())
+                    if current-last_voice>silence_limit or current-speech_start>=max_seconds:
+                        break
+                else:
+                    preroll = (preroll+[chunk.copy()])[-4:]
+                    if current-started>8:
+                        return None
+        return np.concatenate(chunks,axis=0) if chunks and not self._cancel.is_set() else None
+
+    def transcribe_audio(self,audio_data,samplerate=16000):
+        import soundfile as sf
+        if audio_data is None:
+            return None
+        provider = settings()['stt_provider']
+        if provider=='whisper-local':
+            if self._whisper is None:
+                from faster_whisper import WhisperModel
+                self._whisper = WhisperModel('base',device='cpu',compute_type='int8')
+            segments,_ = self._whisper.transcribe(audio_data.flatten(),language='pt',vad_filter=True)
+            return ' '.join(s.text for s in segments).strip()
+        buffer = io.BytesIO()
+        sf.write(buffer,audio_data,samplerate,format='WAV',subtype='PCM_16')
+        buffer.seek(0)
+        if provider=='openai':
+            from openai import OpenAI
+            if not config.OPENAI_STT_MODEL:
+                raise ValueError('Configure OPENAI_STT_MODEL.')
+            buffer.name = 'speech.wav'
+            with OpenAI(api_key=provider_key('openai-api'),timeout=20,max_retries=1) as client:
+                result = client.audio.transcriptions.create(file=buffer,model=config.OPENAI_STT_MODEL,language='pt')
+                return result.text.strip()
+        if provider!='google-web':
+            raise ValueError('Provedor de transcrição inválido.')
+        import speech_recognition as sr
+        recognizer = sr.Recognizer()
+        recognizer.operation_timeout = 12
+        with sr.AudioFile(buffer) as source:
+            sample = recognizer.record(source)
+        try:
+            return recognizer.recognize_google(sample,language=config.STT_LANGUAGE).strip()
         except sr.UnknownValueError:
             return None
-        except sr.RequestError as e:
-            logger.warning(f"Erro na API Google STT: {e}. Tentando fallback local...")
-        except Exception as e:
-            logger.error(f"Erro ao processar áudio: {e}")
 
-        # Local fallback via faster-whisper if available
-        try:
-            from faster_whisper import WhisperModel
-            # Using tiny model to be extremely light on RAM and disk
-            model = WhisperModel("tiny", device="cpu", compute_type="int8")
-            segments, info = model.transcribe(audio_data.flatten(), language="pt")
-            text = " ".join([seg.text for seg in segments]).strip()
-            if text:
-                logger.info(f"Reconhecido (Whisper Tiny): {text}")
-                return text
-        except Exception as ex:
-            logger.debug(f"Whisper fallback não disponível: {ex}")
-
-        return None
-
-    def listen_and_transcribe(self) -> Optional[str]:
-        """Listens to microphone until a phrase is spoken and transcribes it."""
-        self.notify_state("LISTENING")
-        audio = self.record_phrase()
-        if audio is None:
-            self.notify_state("IDLE")
+    def listen_and_transcribe(self):
+        if not self.enabled or self.is_speaking or not self._mic_lock.acquire(blocking=False):
             return None
-
-        self.notify_state("PROCESSING")
-        text = self.transcribe_audio(audio)
-        self.notify_state("IDLE")
-        return text
+        self._cancel.clear()
+        generation = self._generation
+        self.is_listening = True
+        try:
+            self.notify_state('LISTENING')
+            audio = self.record_phrase()
+            if self._cancel.is_set():
+                return None
+            self.notify_state('PROCESSING')
+            text = self.transcribe_audio(audio)
+            return text if generation==self._generation else None
+        finally:
+            self.is_listening = False
+            self._mic_lock.release()
 
 audio_manager = AudioManager()

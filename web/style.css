@@ -818,6 +818,27 @@ body.sci-fi-theme {
 }
 
 /* Animations */
+dialog { width: min(900px, 94vw); max-height: 88vh; margin:auto; padding:24px; color:#f4e9d4; background:#11141b; border:1px solid #b68a34; border-radius:10px; font-family:var(--font-hud); overflow:auto; }
+dialog::backdrop { background:#000b; backdrop-filter:blur(5px); }
+dialog section { padding:18px 0; border-bottom:1px solid #665024; }
+dialog h2, dialog h3 { color:#ffd166; margin:0 0 12px; }
+.panel-heading { display:flex; align-items:center; justify-content:space-between; }
+.settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+dialog label { display:flex; flex-direction:column; gap:5px; margin:8px 0; }
+dialog input, dialog select, dialog textarea { padding:9px; color:#f4eee0; background:#090d14; border:1px solid #746039; border-radius:4px; font:inherit; min-width:0; width:100%; box-sizing:border-box; }
+dialog input[type=checkbox] { width:auto; }
+dialog button, .task-toolbar button { background:#332a16; color:#ffe1a0; border:1px solid #8d6c2b; border-radius:4px; padding:7px 12px; margin:5px; cursor:pointer; }
+dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:320px; overflow:auto; }
+dialog details { margin:12px 0; }
+dialog summary { cursor:pointer; }
+dialog p, .integration-status { color:#d4c6a4; font-size:13px; line-height:1.5; }
+.memory-row { border:1px solid #63502e; padding:9px; margin:8px 0; border-radius:5px; }
+.task-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px; padding:8px; font-size:12px; }
+.task-toolbar span { flex:1; }
+.entry-content { white-space:pre-wrap; overflow-wrap:anywhere; }
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible { outline:2px solid #ffe29b; outline-offset:3px; }
+@media(max-width:900px) { .hud-header { flex-wrap:wrap; height:auto; gap:8px; } .hud-main { display:flex; flex-direction:column; height:auto; overflow:auto; } body { overflow:auto; } .center-stage { min-height:480px; } .terminal-panel { min-height:550px; } .settings-grid { grid-template-columns:1fr; } .header-right { flex-wrap:wrap; } }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; } }
 @keyframes pulseRotate {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }

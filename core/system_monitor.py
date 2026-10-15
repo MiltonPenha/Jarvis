@@ -73,7 +73,7 @@ class SystemMonitor:
             f"Uso do processador em {int(cpu)} por cento. "
             f"Memória RAM operando em {int(ram)} por cento de capacidade. "
             f"Espaço livre no disco principal de {disk_free} gigabytes. "
-            f"Tempo de atividade atual é de {uptime}. Todos os protocolos respondendo normalmente."
+            f"Tempo de atividade atual é de {uptime}."
         )
         return speech
 

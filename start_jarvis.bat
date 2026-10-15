@@ -1,3 +1,7 @@
-@echo off
-cd /d "C:\Users\PC Gamer\Desktop\jarvis"
-"C:\Python314\python.exe" "C:\Users\PC Gamer\Desktop\jarvis\run_jarvis.py"
+@echo off
+cd /d "%~dp0"
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" run_jarvis.py %*
+) else (
+  python run_jarvis.py %*
+)

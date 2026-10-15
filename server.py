@@ -1,254 +1,381 @@
-import os
-import json
+"""Local HUD/API. A browser session cookie plus Host/Origin checks protect tools."""
 import asyncio
-import logging
-import threading
-from typing import List, Set
-from pathlib import Path
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from contextlib import asynccontextmanager,suppress
+import json
+import re
+import secrets
+from fastapi import FastAPI,HTTPException,Request,WebSocket,WebSocketDisconnect
+from fastapi.responses import FileResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from core.config import config
-from core.system_monitor import system_monitor
+from pydantic import BaseModel,Field
+from core.config import config,settings,provider_key
+from core.safety import atomic_write,redact
+from core.assistant_service import AssistantService
+from core.hermes_runtime import list_models
+from core.memory_obsidian import obsidian_memory
 from core.audio_manager import audio_manager
-from core.command_patterns import command_dispatcher
+from core.system_monitor import system_monitor
 from core.autostart import autostart_service
 
-logger = logging.getLogger("JarvisServer")
-logging.basicConfig(level=logging.INFO)
+COOKIE = secrets.token_urlsafe(32)
+connections = set()
+send_lock = asyncio.Lock()
+shutdown_callback = None
+voice_runner = None
+voice_continuous = False
 
-app = FastAPI(title="JARVIS Personal AI Assistant", version="2.0")
+async def broadcast(message):
+    encoded = json.dumps(message,ensure_ascii=False)
+    async with send_lock:
+        for ws in list(connections):
+            try:
+                await asyncio.wait_for(ws.send_text(encoded),2)
+            except Exception:
+                connections.discard(ws)
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+assistant = AssistantService(broadcast)
 
-# Active WebSocket connections
-active_connections: Set[WebSocket] = set()
+def valid_id(value):
+    if not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}',value):
+        raise ValueError('Identificador inválido.')
+    return value
+
+def trusted(host,origin):
+    if host not in (f'127.0.0.1:{config.PORT}',f'localhost:{config.PORT}','testserver'):
+        return False
+    return not origin or origin in (f'http://{host}',f'https://{host}')
+
+async def telemetry():
+    while True:
+        if connections:
+            metrics = await asyncio.to_thread(system_monitor.get_metrics)
+            metrics['autostart_enabled'] = autostart_service.is_enabled()
+            await broadcast({'type':'telemetry','data':metrics})
+        await asyncio.sleep(2)
+
+@asynccontextmanager
+async def lifespan(app):
+    assistant.store.recover()
+    loop = asyncio.get_running_loop()
+    def state(value):
+        loop.call_soon_threadsafe(lambda:asyncio.create_task(broadcast({'type':'state','state':value})))
+    def level(value):
+        loop.call_soon_threadsafe(lambda:asyncio.create_task(broadcast({'type':'audio_level','level':value})))
+    audio_manager.on_state_change = state
+    audio_manager.on_audio_level = level
+    periodic = asyncio.create_task(telemetry())
+    try:
+        yield
+    finally:
+        audio_manager.stop()
+        if voice_runner:
+            voice_runner.cancel()
+            await asyncio.gather(voice_runner,return_exceptions=True)
+        periodic.cancel()
+        with suppress(asyncio.CancelledError):
+            await periodic
+        await assistant.close()
+        audio_manager.on_state_change = None
+        audio_manager.on_audio_level = None
+
+app = FastAPI(title='JARVIS / Hermes',version='4.0',lifespan=lifespan)
+
+@app.middleware('http')
+async def local_access(request:Request,call_next):
+    if not trusted(request.headers.get('host',''),request.headers.get('origin')):
+        return JSONResponse({'detail':'Origem não autorizada.'},status_code=403)
+    if request.url.path.startswith('/api/') and not secrets.compare_digest(request.cookies.get('jarvis_session',''),COOKIE):
+        return JSONResponse({'detail':'Abra a interface local primeiro.'},status_code=403)
+    response = await call_next(request)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Cache-Control'] = 'no-store' if request.url.path.startswith('/api/') else 'no-cache'
+    if request.url.path=='/':
+        response.set_cookie('jarvis_session',COOKIE,httponly=True,samesite='strict')
+    return response
+
+@app.exception_handler(ValueError)
+async def value_error(request,exc):
+    return JSONResponse({'detail':redact(str(exc))},status_code=400)
+
+@app.exception_handler(KeyError)
+async def missing(request,exc):
+    return JSONResponse({'detail':'Registro não encontrado.'},status_code=404)
+
+@app.exception_handler(RuntimeError)
+async def unavailable(request,exc):
+    return JSONResponse({'detail':redact(str(exc))},status_code=503)
+
+@app.exception_handler(PermissionError)
+async def denied(request,exc):
+    return JSONResponse({'detail':redact(str(exc))},status_code=403)
+
+@app.exception_handler(FileNotFoundError)
+async def file_missing(request,exc):
+    return JSONResponse({'detail':'Arquivo não encontrado no diretório autorizado.'},status_code=404)
+
+@app.exception_handler(TimeoutError)
+async def timed_out(request,exc):
+    return JSONResponse({'detail':'O limite de tempo foi atingido. Confira a tarefa e os checkpoints.'},status_code=504)
 
 class CommandRequest(BaseModel):
-    command: str
+    command:str = Field(min_length=1,max_length=12000)
+    session:str = 'default'
+    id:str|None = None
 
-class SpeakRequest(BaseModel):
-    text: str
+class MemoryRequest(BaseModel):
+    action:str
+    target:str = 'user'
+    content:str = Field(default='',max_length=2200)
+    old_text:str = Field(default='',max_length=2200)
+    source:str = 'user_statement'
 
-class CommandsUpdateRequest(BaseModel):
-    custom_commands: list
+class NoteRequest(BaseModel):
+    path:str
+    content:str = Field(max_length=100000)
+    expected_hash:str|None = None
+    source:str = 'user_statement'
 
-@app.on_event("startup")
-async def startup_event():
-    # Link audio_manager callbacks to WebSocket broadcast
-    def on_state(state):
-        asyncio.run_coroutine_threadsafe(broadcast_state(state), loop)
-        
-    def on_level(level):
-        asyncio.run_coroutine_threadsafe(broadcast_audio_level(level), loop)
+class LocalActionRequest(BaseModel):
+    action:str
+    session:str='default'
+    id:str
 
-    audio_manager.on_state_change = on_state
-    audio_manager.on_audio_level = on_level
-
-    global loop
-    loop = asyncio.get_running_loop()
-    # Start periodic telemetry broadcast
-    asyncio.create_task(telemetry_broadcast_task())
-
-async def broadcast_state(state: str):
-    message = json.dumps({"type": "state", "state": state})
-    await broadcast_message(message)
-
-async def broadcast_audio_level(level: float):
-    message = json.dumps({"type": "audio_level", "level": level})
-    await broadcast_message(message)
-
-async def broadcast_message(message: str):
-    to_remove = set()
-    for ws in list(active_connections):
-        try:
-            await ws.send_text(message)
-        except Exception:
-            to_remove.add(ws)
-    for ws in to_remove:
-        active_connections.discard(ws)
-
-async def telemetry_broadcast_task():
-    """Periodically broadcasts CPU, RAM and system telemetry to HUD."""
-    while True:
-        try:
-            if active_connections:
-                metrics = system_monitor.get_metrics()
-                metrics["autostart_enabled"] = autostart_service.is_enabled()
-                payload = json.dumps({"type": "telemetry", "data": metrics})
-                await broadcast_message(payload)
-        except Exception as e:
-            logger.debug(f"Telemetry broadcast err: {e}")
-        await asyncio.sleep(1.0)
-
-# WebSocket Endpoint
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    active_connections.add(websocket)
-    try:
-        # Send initial state and telemetry
-        init_metrics = system_monitor.get_metrics()
-        init_metrics["autostart_enabled"] = autostart_service.is_enabled()
-        await websocket.send_text(json.dumps({
-            "type": "init",
-            "assistant_name": config.ASSISTANT_NAME,
-            "user_name": config.USER_NAME,
-            "telemetry": init_metrics
-        }))
-
-        while True:
-            data = await websocket.receive_text()
-            try:
-                msg = json.loads(data)
-                action = msg.get("action")
-                
-                if action == "command":
-                    user_cmd = msg.get("command", "")
-                    if user_cmd:
-                        # Process command asynchronously
-                        asyncio.create_task(handle_user_command(user_cmd))
-                        
-                elif action == "listen_trigger":
-                    # User clicked listen button on UI
-                    asyncio.create_task(handle_listen_request())
-
-                elif action == "toggle_autostart":
-                    enabled = autostart_service.is_enabled()
-                    if enabled:
-                        success, text = autostart_service.disable()
-                    else:
-                        success, text = autostart_service.enable()
-                    await websocket.send_text(json.dumps({
-                        "type": "autostart_status",
-                        "enabled": autostart_service.is_enabled(),
-                        "message": text
-                    }))
-
-                elif action == "shutdown":
-                    # Clean shutdown requested by UI
-                    def _kill():
-                        time.sleep(0.5)
-                        os._exit(0)
-                    threading.Thread(target=_kill, daemon=True).start()
-                    return
-                    
-            except json.JSONDecodeError:
-                pass
-    except WebSocketDisconnect:
-        active_connections.discard(websocket)
-    except Exception as e:
-        active_connections.discard(websocket)
-
-async def handle_user_command(user_cmd: str):
-    """Executes a command, broadcasts response and speaks."""
-    await broadcast_message(json.dumps({"type": "user_command", "text": user_cmd}))
-    await broadcast_state("PROCESSING")
-
-    # Run execution in background thread to avoid blocking server
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, command_dispatcher.execute_command, user_cmd)
-    
-    # Send result to UI
-    await broadcast_message(json.dumps({
-        "type": "jarvis_response",
-        "command": user_cmd,
-        "response": result.get("display_text", ""),
-        "thought": result.get("thought"),
-        "meta": result
-    }))
-
-    # Speak response
-    speech = result.get("response_speech", "")
-    if speech:
-        await loop.run_in_executor(None, audio_manager.speak, speech)
-
-async def handle_listen_request():
-    """Listens to voice from microphone and handles the recognized text."""
-    audio_manager.play_chime(wake=True)
-    loop = asyncio.get_running_loop()
-    text = await loop.run_in_executor(None, audio_manager.listen_and_transcribe)
-    if text:
-        await handle_user_command(text)
-    else:
-        await broadcast_state("IDLE")
-
-# REST API Endpoints
-@app.post("/api/command")
-def api_command(req: CommandRequest):
-    result = command_dispatcher.execute_command(req.command)
-    threading.Thread(target=audio_manager.speak, args=(result.get("response_speech", ""),), daemon=True).start()
-    return result
-
-@app.post("/api/speak")
-def api_speak(req: SpeakRequest):
-    threading.Thread(target=audio_manager.speak, args=(req.text,), daemon=True).start()
-    return {"status": "speaking", "text": req.text}
-
-@app.get("/api/status")
-def api_status():
-    metrics = system_monitor.get_metrics()
-    metrics["autostart_enabled"] = autostart_service.is_enabled()
-    return metrics
-
-@app.post("/api/autostart/toggle")
-def api_autostart_toggle():
-    if autostart_service.is_enabled():
-        success, msg = autostart_service.disable()
-    else:
-        success, msg = autostart_service.enable()
-    return {"success": success, "enabled": autostart_service.is_enabled(), "message": msg}
-
-@app.post("/api/shutdown")
-def api_shutdown():
-    def _kill():
-        time.sleep(0.5)
-        os._exit(0)
-    threading.Thread(target=_kill, daemon=True).start()
-    return {"status": "shutting_down"}
-
-@app.get("/api/commands")
-def api_get_commands():
-    return {"custom_commands": command_dispatcher.load_custom_commands()}
-
-@app.post("/api/commands")
-def api_save_commands(req: CommandsUpdateRequest):
-    with open(config.COMMANDS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"custom_commands": req.custom_commands}, f, indent=2, ensure_ascii=False)
-    command_dispatcher.reload_custom_commands()
-    return {"status": "saved"}
-
-@app.get("/api/memory")
-def api_get_memory():
-    from core.memory_obsidian import obsidian_memory
-    profile = obsidian_memory.get_user_profile()
-    notes = [f.name for f in obsidian_memory.knowledge_dir.glob("*.md")]
-    return {
-        "vault_path": str(obsidian_memory.vault_dir),
-        "profile": profile,
-        "knowledge_notes": notes
+@app.post('/api/actions')
+async def local_action(req:LocalActionRequest):
+    """Exact UI shortcuts use deterministic tools and no model calls."""
+    from core.jarvis_tools import ToolService
+    actions={
+        'status':{'action':'system_status'},
+        'vault':{'action':'open_target','path':'cofre'},
+        'browser':{'action':'open_target','path':'google'},
+        'music':{'action':'play_music','query':'música'},
+        'screenshot':{'action':'screenshot'},
     }
+    if req.action.startswith('macro:'):
+        actions[req.action]={'action':'macro_run','query':req.action.removeprefix('macro:')}
+    if req.action not in actions:raise ValueError('Ação local desconhecida.')
+    valid_id(req.id);valid_id(req.session)
+    prompt='[Atalho local] '+req.action
+    fresh=assistant.store.create(req.id,req.session,prompt)
+    if not fresh:return assistant.store.get(req.id)
+    async with assistant.lock:
+        assistant.store.update(req.id,'running')
+        await broadcast({'type':'state','state':'EXECUTING'})
+        result=await asyncio.to_thread(ToolService(req.id).execute,actions[req.action])
+        ok=not result.get('error')
+        display=result.get('message') or json.dumps(result,ensure_ascii=False,indent=2)
+        assistant.store.update(req.id,'completed' if ok else 'failed',result=display,error=result.get('error'),usage={'provider':'deterministic','api_calls':0,'input_tokens':0,'output_tokens':0,'estimated_usd':0})
+        await broadcast({'type':'jarvis_response','response':display,'session':req.session})
+        await broadcast({'type':'state','state':'COMPLETED' if ok else 'FAILED'})
+    return assistant.store.get(req.id)
 
-@app.post("/api/memory/open")
-def api_open_memory():
-    from core.memory_obsidian import obsidian_memory
+@app.get('/health')
+async def health():
+    return {'status':'online','engine':'Hermes AIAgent','configured_model':bool(settings()['model'])}
+
+@app.post('/api/command',status_code=202)
+async def command(req:CommandRequest):
+    valid_id(req.session)
+    if req.id:
+        valid_id(req.id)
+    return await assistant.submit(req.command,req.session,req.id)
+
+@app.get('/api/tasks')
+async def tasks(session:str|None=None):
+    return {'tasks':assistant.store.list(session)}
+
+@app.get('/api/tasks/{task_id}')
+async def task(task_id:str):
+    return assistant.store.get(task_id)
+
+@app.post('/api/tasks/{task_id}/cancel')
+async def cancel(task_id:str):
+    return await assistant.cancel(task_id)
+
+@app.post('/api/tasks/{task_id}/resume')
+async def resume(task_id:str):
+    return await assistant.resume(task_id)
+
+@app.get('/api/history')
+async def history(session:str='default'):
+    valid_id(session)
+    return await assistant.runtime.run({'operation':'history','session':session},timeout=30)
+
+@app.get('/api/settings')
+async def get_settings():
+    s = settings()
+    return {**s,'credentials':{p:bool(provider_key(p)) for p in ('openai-api','gemini')},
+        'vault':str(obsidian_memory.vault_dir),'workspace_roots':[str(p) for p in config.WORKSPACE_ROOTS],
+        'limits':{'steps':config.MAX_STEPS,'output_tokens_per_call':config.MAX_OUTPUT_TOKENS,'context_chars':config.MAX_CONTEXT_CHARS,
+                  'task_seconds':config.TASK_TIMEOUT,'daily_tasks':config.MAX_DAILY_TASKS,'daily_tokens_soft':config.MAX_DAILY_TOKENS}}
+
+@app.post('/api/settings')
+async def save_settings(changes:dict):
+    current = settings()
+    if set(changes)-set(current):
+        raise ValueError('Configuração desconhecida. Credenciais e permissões só podem ser alteradas no backend.')
+    candidate = {**current,**changes}
+    if candidate['provider'] not in ('openai-api','gemini') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
+        raise ValueError('Provedor inválido.')
+    if candidate['tts_provider'] not in ('edge','offline','openai') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
+        raise ValueError('Provedor de áudio inválido.')
+    for name in ('model','fallback_model','tts_voice'):
+        if not isinstance(candidate[name],str) or len(candidate[name])>120 or not re.fullmatch(r'[a-zA-Z0-9_./:-]*',candidate[name]):
+            raise ValueError('Identificador de modelo/voz inválido.')
+    if not isinstance(candidate['speech_enabled'],bool):
+        raise ValueError('speech_enabled deve ser booleano.')
+    for name in ('input_price_per_million','output_price_per_million'):
+        val = candidate[name]
+        if val is not None and (not isinstance(val,(int,float)) or not 0<=val<=10000):
+            raise ValueError('Preço inválido.')
+    atomic_write(config.DATA_DIR/'settings.json',json.dumps(candidate,ensure_ascii=False,indent=2))
+    return await get_settings()
+
+@app.get('/api/models')
+async def models(provider:str):
+    if provider not in ('openai-api','gemini'):
+        raise ValueError('Provedor inválido.')
+    return {'provider':provider,'models':await list_models(provider)}
+
+@app.get('/api/usage')
+async def usage():
+    return {'observed':assistant.store.daily_usage(),'note':'Tokens reportados pelo provedor; estimativas dependem dos preços e data configurados. Limite de tokens diário é verificado na admissão; uma tarefa em curso pode ultrapassá-lo.'}
+
+@app.get('/api/memory')
+async def memory():
+    return await assistant.runtime.run({'operation':'memory','args':{'action':'memory_list'}},timeout=30)
+
+@app.get('/api/memory/events')
+async def memory_events():
+    path=config.DATA_DIR/'memory-events.json'
+    return {'events':json.loads(path.read_text(encoding='utf-8')) if path.exists() else []}
+
+@app.post('/api/memory')
+async def update_memory(req:MemoryRequest):
+    if req.action not in ('memory_add','memory_patch','memory_remove'):
+        raise ValueError('Ação de memória inválida.')
+    return await assistant.runtime.run({'operation':'memory','args':req.model_dump()},timeout=30)
+
+@app.get('/api/vault/search')
+async def vault_search(q:str=''):
+    return {'sources':await asyncio.to_thread(obsidian_memory.search,q)}
+
+@app.get('/api/vault/note')
+async def vault_read(path:str):
+    return await asyncio.to_thread(obsidian_memory.read,path)
+
+@app.post('/api/vault/note')
+async def vault_write(req:NoteRequest):
+    return await asyncio.to_thread(obsidian_memory.write,req.path,req.content,req.expected_hash,req.source)
+
+@app.post('/api/memory/open')
+async def vault_open():
     obsidian_memory.open_vault_folder()
-    return {"status": "opened", "vault": str(obsidian_memory.vault_dir)}
+    return {'status':'opened'}
 
-# Static Files & UI
-app.mount("/static", StaticFiles(directory=str(config.WEB_DIR)), name="static")
+@app.get('/api/status')
+async def status():
+    data = await asyncio.to_thread(system_monitor.get_metrics)
+    data['autostart_enabled'] = autostart_service.is_enabled()
+    return data
 
-@app.get("/")
-def get_index():
-    return FileResponse(str(config.WEB_DIR / "index.html"))
+@app.post('/api/autostart/toggle')
+async def autostart():
+    ok,message = await asyncio.to_thread(autostart_service.disable if autostart_service.is_enabled() else autostart_service.enable)
+    return {'success':ok,'message':message,'enabled':autostart_service.is_enabled()}
+
+@app.post('/api/audio/stop')
+async def audio_stop():
+    global voice_continuous
+    voice_continuous = False
+    audio_manager.stop()
+    await broadcast({'type':'state','state':'CANCELLED'})
+    return {'status':'stopped'}
+
+async def listen(session,continuous=False):
+    global voice_continuous
+    voice_continuous = continuous
+    failed=False
+    try:
+        while True:
+            if not assistant.lock.locked() and not audio_manager.is_speaking:
+                text = await asyncio.to_thread(audio_manager.listen_and_transcribe)
+                if text:
+                    if not continuous or re.search(r'\b(jarvis|jarbas|jervis)\b',text,re.I):
+                        await assistant.submit(text,session)
+                elif not continuous:
+                    await broadcast({'type':'notice','text':'Nenhuma fala reconhecida. Tente novamente.'})
+            if not continuous or not voice_continuous:
+                break
+            await asyncio.sleep(.5)
+    except Exception as exc:
+        failed=True
+        await broadcast({'type':'notice','text':'Microfone/transcrição indisponível: '+type(exc).__name__})
+        await broadcast({'type':'state','state':'FAILED'})
+    finally:
+        if not failed and not assistant.lock.locked():
+            await broadcast({'type':'state','state':'IDLE'})
+
+@app.post('/api/shutdown')
+async def shutdown():
+    await assistant.close()
+    audio_manager.stop()
+    if shutdown_callback:
+        shutdown_callback()
+    return {'status':'shutting_down' if shutdown_callback else 'tasks_stopped'}
+
+@app.websocket('/ws')
+async def websocket(ws:WebSocket):
+    global voice_runner,voice_continuous
+    if not trusted(ws.headers.get('host',''),ws.headers.get('origin')) or not secrets.compare_digest(ws.cookies.get('jarvis_session',''),COOKIE):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    connections.add(ws)
+    await ws.send_json({'type':'init','assistant_name':config.ASSISTANT_NAME,'telemetry':system_monitor.get_metrics()})
+    try:
+        while True:
+            raw = await ws.receive_text()
+            if len(raw)>16000:
+                raise ValueError('Mensagem muito grande.')
+            try:
+                msg = json.loads(raw)
+                action = msg.get('action')
+                if action=='command':
+                    session = valid_id(msg.get('session','default'))
+                    task_id = valid_id(msg['id']) if msg.get('id') else None
+                    task = await assistant.submit(msg.get('command',''),session,task_id)
+                    await ws.send_json({'type':'task_updated','task':task})
+                elif action=='listen_trigger':
+                    if assistant.lock.locked() and not msg.get('continuous'):
+                        await ws.send_json({'type':'notice','text':'Há uma tarefa ou fala em andamento. Use Interromper ou aguarde antes de falar.'})
+                        continue
+                    if not voice_runner or voice_runner.done():
+                        voice_runner = asyncio.create_task(listen(valid_id(msg.get('session','default')),bool(msg.get('continuous'))))
+                elif action=='microphone_off':
+                    voice_continuous = False
+                    audio_manager.stop()
+                elif action=='cancel':
+                    if msg.get('id'):
+                        await assistant.cancel(msg['id'])
+                    else:
+                        audio_manager.stop()
+                elif action=='toggle_autostart':
+                    result = await autostart()
+                    await ws.send_json({'type':'autostart_status',**result})
+                elif action=='shutdown':
+                    await shutdown()
+            except (ValueError,KeyError) as exc:
+                await ws.send_json({'type':'notice','text':redact(str(exc))})
+    except (WebSocketDisconnect,RuntimeError):
+        pass
+    finally:
+        connections.discard(ws)
+
+app.mount('/static',StaticFiles(directory=str(config.WEB_DIR)),name='static')
+
+@app.get('/')
+async def index():
+    return FileResponse(config.WEB_DIR/'index.html')

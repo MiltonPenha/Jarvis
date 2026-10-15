@@ -1,157 +1,113 @@
+"""Obsidian is the editable knowledge source. The FTS index is disposable."""
+import json
 import os
 import re
-import glob
+import sqlite3
+import threading
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Optional
-
 from core.config import config
+from core.safety import atomic_write, checked_path, digest, redact, file_lock
 
 class ObsidianMemory:
-    """
-    Long-term and episodic memory system integrated directly with an Obsidian Vault.
-    Stores and retrieves memories, daily logs, knowledge graph notes, and user profiles.
-    """
-    def __init__(self, vault_path: Optional[str] = None):
-        if vault_path:
-            self.vault_dir = Path(vault_path)
-        else:
-            self.vault_dir = Path(config.OBSIDIAN_VAULT_PATH)
-            
-        self.daily_dir = self.vault_dir / "Daily"
-        self.user_dir = self.vault_dir / "User"
-        self.knowledge_dir = self.vault_dir / "Knowledge"
-        self.tasks_dir = self.vault_dir / "Tasks"
-        self.conv_dir = self.vault_dir / "Conversations"
+    def __init__(self,vault_path=None,index_path=None):
+        self.vault_dir = Path(vault_path or config.OBSIDIAN_VAULT_PATH).resolve()
+        self.vault_dir.mkdir(parents=True,exist_ok=True)
+        self.index_path = Path(index_path or config.DATA_DIR / 'vault-index.sqlite3')
+        self.index_path.parent.mkdir(parents=True,exist_ok=True)
+        self.lock = threading.RLock()
+        self.knowledge_dir = self.vault_dir / 'Knowledge'
+        self.user_dir = self.vault_dir / 'User'
+        self.tasks_dir = self.vault_dir / 'Tasks'
+        with self.db() as db:
+            db.executescript('CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,stamp TEXT); CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(path UNINDEXED,line UNINDEXED,content,tokenize="unicode61 remove_diacritics 2");')
 
-        self._ensure_structure()
-
-    def _ensure_structure(self):
-        """Ensures all essential vault folders exist."""
-        for folder in [self.vault_dir, self.daily_dir, self.user_dir, self.knowledge_dir, self.tasks_dir, self.conv_dir]:
-            folder.mkdir(parents=True, exist_ok=True)
-
-    def log_interaction(self, user_msg: str, jarvis_reply: str):
-        """Appends an interaction to today's daily note in Obsidian."""
+    @contextmanager
+    def db(self):
+        db = sqlite3.connect(self.index_path,timeout=10)
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA journal_mode=WAL')
         try:
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            daily_file = self.daily_dir / f"{today_str}.md"
-            now_time = datetime.now().strftime("%H:%M:%S")
+            with db:
+                yield db
+        finally:
+            db.close()
 
-            if not daily_file.exists():
-                header = (
-                    f"---\n"
-                    f"date: {today_str}\n"
-                    f"type: daily-log\n"
-                    f"tags: [daily, jarvis-log]\n"
-                    f"---\n\n"
-                    f"# Diário de Atividades - {today_str}\n\n"
-                )
-                daily_file.write_text(header, encoding="utf-8")
-
-            entry = (
-                f"### [{now_time}] Diálogo\n"
-                f"- **{config.USER_NAME}**: {user_msg}\n"
-                f"- **J.A.R.V.I.S.**: {jarvis_reply}\n\n"
-            )
-            with open(daily_file, "a", encoding="utf-8") as f:
-                f.write(entry)
-        except Exception as e:
-            print(f"[ObsidianMemory] Erro ao gravar nota diária: {e}")
-
-    def save_knowledge(self, topic: str, content: str, tags: Optional[List[str]] = None) -> str:
-        """Creates or updates a knowledge note in the Obsidian Vault."""
-        try:
-            # Clean filename
-            safe_topic = re.sub(r'[\\/*?:"<>|]', '', topic).strip()
-            note_file = self.knowledge_dir / f"{safe_topic}.md"
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            tags_yaml = ", ".join(tags) if tags else "knowledge, ai-note"
-            frontmatter = (
-                f"---\n"
-                f"topic: \"{safe_topic}\"\n"
-                f"updated: {now_str}\n"
-                f"tags: [{tags_yaml}]\n"
-                f"---\n\n"
-                f"# {safe_topic}\n\n"
-                f"{content}\n\n"
-                f"---\n"
-                f"*Registrado na memória neural pelo J.A.R.V.I.S. em {now_str}*\n"
-            )
-            note_file.write_text(frontmatter, encoding="utf-8")
-            return f"Nota [[{safe_topic}]] registrada com sucesso na memória do Obsidian."
-        except Exception as e:
-            return f"Erro ao salvar conhecimento: {e}"
-
-    def add_task(self, task_text: str) -> str:
-        """Appends a new task to Tasks/Tarefas.md."""
-        try:
-            tasks_file = self.tasks_dir / "Tarefas.md"
-            now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-            if not tasks_file.exists():
-                tasks_file.write_text("# 📋 Lista de Tarefas e Lembretes\n\n", encoding="utf-8")
-
-            entry = f"- [ ] {task_text} *(Criado em: {now_str})*\n"
-            with open(tasks_file, "a", encoding="utf-8") as f:
-                f.write(entry)
-            return f"Lembrete adicionado à sua lista de tarefas do Obsidian: '{task_text}'."
-        except Exception as e:
-            return f"Erro ao salvar tarefa: {e}"
-
-    def search_memory(self, query: str, max_results: int = 3) -> str:
-        """Searches across all markdown notes in the Obsidian Vault for relevant text."""
-        keywords = [k.lower() for k in re.split(r'\s+', query) if len(k) > 2]
-        if not keywords:
-            return ""
-
-        matches = []
-        try:
-            for md_file in self.vault_dir.rglob("*.md"):
-                if ".obsidian" in str(md_file):
-                    continue
+    def refresh(self):
+        with self.lock,self.db() as db:
+            seen = set()
+            for path in self.vault_dir.rglob('*.md'):
+                rel = path.relative_to(self.vault_dir).as_posix()
                 try:
-                    text = md_file.read_text(encoding="utf-8")
-                except Exception:
+                    path = checked_path(self.vault_dir,rel,True)
+                    stat = path.stat()
+                    if stat.st_size > config.MAX_FILE_BYTES:
+                        continue
+                    stamp = f'{stat.st_mtime_ns}:{stat.st_size}'
+                    seen.add(rel)
+                    old = db.execute('SELECT stamp FROM files WHERE path=?',(rel,)).fetchone()
+                    if old and old['stamp'] == stamp:
+                        continue
+                    text = redact(path.read_text(encoding='utf-8'))
+                    db.execute('DELETE FROM chunks WHERE path=?',(rel,))
+                    lines = text.splitlines()
+                    for i in range(0,len(lines),12):
+                        db.execute('INSERT INTO chunks VALUES(?,?,?)',(rel,i+1,'\n'.join(lines[i:i+12])[:4000]))
+                    db.execute('INSERT OR REPLACE INTO files VALUES(?,?)',(rel,stamp))
+                except (OSError,UnicodeError,PermissionError):
                     continue
+            for row in db.execute('SELECT path FROM files').fetchall():
+                if row['path'] not in seen:
+                    db.execute('DELETE FROM chunks WHERE path=?',(row['path'],))
+                    db.execute('DELETE FROM files WHERE path=?',(row['path'],))
 
-                score = sum(1 for kw in keywords if kw in text.lower())
-                if score > 0:
-                    # Extract snippet
-                    lines = [l.strip() for l in text.split("\n") if any(kw in l.lower() for kw in keywords)]
-                    snippet = " | ".join(lines[:3]) if lines else text[:200]
-                    rel_name = md_file.relative_to(self.vault_dir).as_posix()
-                    matches.append((score, f"[[{rel_name}]]: {snippet}"))
+    def search(self,query,limit=5):
+        self.refresh()
+        words = re.findall(r'\w{3,}',query,flags=re.UNICODE)[:12]
+        if not words:
+            return []
+        expr = ' OR '.join('"'+word+'"' for word in words)
+        with self.db() as db:
+            rows = db.execute('SELECT path,line,snippet(chunks,2,\'\',\'\',\' … \',45) AS excerpt FROM chunks WHERE chunks MATCH ? ORDER BY bm25(chunks) LIMIT ?', (expr,max(1,min(limit,10)))).fetchall()
+        return [dict(r) for r in rows]
 
-            matches.sort(key=lambda x: x[0], reverse=True)
-            results = [m[1] for m in matches[:max_results]]
-            return "\n".join(results)
-        except Exception as e:
-            print(f"[ObsidianMemory] Erro na busca de memória: {e}")
-            return ""
+    def read(self,relative,start=1,lines=60):
+        path = checked_path(self.vault_dir,relative,True)
+        if path.suffix.lower() != '.md' or path.stat().st_size > config.MAX_FILE_BYTES:
+            raise ValueError('Somente notas Markdown de até 2 MB.')
+        text = path.read_text(encoding='utf-8')
+        start = max(1,int(start))
+        excerpt = redact('\n'.join(text.splitlines()[start-1:start-1+min(int(lines),100)]))
+        return {'path':relative,'line':start,'content':excerpt[:6000], 'truncated':len(text.splitlines())>min(int(lines),100) or len(excerpt)>6000 or start>1, 'sha256':digest(text), 'updated':datetime.fromtimestamp(path.stat().st_mtime,timezone.utc).isoformat()}
 
-    def get_user_profile(self) -> str:
-        """Reads user profile and preferences from Obsidian."""
-        profile_content = ""
-        perfil_file = self.user_dir / "Perfil.md"
-        pref_file = self.user_dir / "Preferencias.md"
+    def write(self,relative,content,expected_hash=None,source='user_statement'):
+        if source not in ('user_statement','document','observed','inference'):
+            raise ValueError('Origem inválida.')
+        path = checked_path(self.vault_dir,relative)
+        if path.suffix.lower() != '.md' or len(content.encode()) > config.MAX_FILE_BYTES:
+            raise ValueError('Somente notas Markdown de até 2 MB.')
+        content = redact(content)
+        metadata = '<!-- jarvis: '+json.dumps({'source':source,'updated':datetime.now(timezone.utc).isoformat()},ensure_ascii=False)+' -->\n'
+        content = metadata+re.sub(r'^<!-- jarvis: .*? -->\r?\n','',content,count=1)
+        with self.lock,file_lock(path):
+            old = path.read_text(encoding='utf-8') if path.exists() else None
+            if old is not None and digest(old) != expected_hash:
+                raise ValueError('A nota já existe ou mudou. Leia a versão atual e forneça sha256.')
+            if old is not None:
+                backup = config.DATA_DIR / 'revisions' / (digest(str(path))[:16]+'-'+digest(old)+'.md')
+                atomic_write(backup,old)
+            sha = atomic_write(path,content)
+            self.refresh()
+        return {'verified':True,'path':relative,'sha256':sha,'source':source,'updated':datetime.now(timezone.utc).isoformat()}
 
-        if perfil_file.exists():
-            try:
-                profile_content += perfil_file.read_text(encoding="utf-8") + "\n"
-            except Exception:
-                pass
+    def search_memory(self,query,max_results=3):
+        return json.dumps(self.search(query,max_results),ensure_ascii=False)
 
-        if pref_file.exists():
-            try:
-                profile_content += pref_file.read_text(encoding="utf-8") + "\n"
-            except Exception:
-                pass
-
-        return profile_content.strip()
+    def get_user_profile(self):
+        return '\n'.join(p.read_text(encoding='utf-8')[:3000] for p in (self.user_dir/'Perfil.md',self.user_dir/'Preferencias.md') if p.exists())
 
     def open_vault_folder(self):
-        """Opens the Obsidian Vault folder in Windows Explorer."""
         os.startfile(str(self.vault_dir))
 
 obsidian_memory = ObsidianMemory()
