@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "split": "holdout",
+  "policy": "Frozen before baseline. Do not inspect case-level outcomes to guide adjustments; after inspection retire this version as a tuning holdout.",
+  "cases": [
+    {"id":"hold-numeric","work_id":"luftballons","artist_id":"nena","language":"de","tags":["numeric","service"],"request":"Coloque 99 Luftballons da Nena no YouTube","queries":["99 Luftballons Nena"],"action":"play","service":"youtube","record":true},
+    {"id":"hold-accent","work_id":"aguas","artist_id":"elis","language":"pt","tags":["accent","conversation"],"request":"Quero ouvir Águas de Março de Elis Regina","queries":["Águas de Março Elis Regina"],"action":"play","record":true},
+    {"id":"hold-french","work_id":"derniere","artist_id":"indila","language":"fr","tags":["foreign_title","greeting"],"request":"Jarvis, toca Dernière Danse da Indila","queries":["Dernière Danse Indila"],"action":"play","record":true},
+    {"id":"hold-spanish","work_id":"corazon","artist_id":"santana","language":"es","tags":["foreign_title","polite"],"request":"Por favor, coloca Corazón Espinado do Santana para eu ouvir","queries":["Corazón Espinado Santana"],"action":"play"},
+    {"id":"hold-japanese","work_id":"yoru","artist_id":"yoasobi","language":"ja","tags":["non_latin","quoted"],"request":"Toque “夜に駆ける” do YOASOBI","queries":["夜に駆ける YOASOBI"],"action":"play"},
+    {"id":"hold-korean","work_id":"bam","artist_id":"iu","language":"ko","tags":["non_latin","quoted"],"request":"Quero ouvir “밤편지” da IU","queries":["밤편지 IU"],"action":"play"},
+    {"id":"hold-five","work_id":"take_five","artist_id":"brubeck","language":"en","tags":["english_title","conversation"],"request":"Consegue pesquisar Take Five do Dave Brubeck e deixar tocando?","queries":["Take Five Dave Brubeck"],"action":"play"},
+    {"id":"hold-rem","work_id":"losing","artist_id":"rem","language":"en","tags":["acronym","punctuation"],"request":"Queria escutar Losing My Religion do R.E.M.","queries":["Losing My Religion R.E.M."],"action":"play"},
+    {"id":"hold-playword","work_id":"dont_stop","artist_id":"journey","language":"en","tags":["command_words","quoted"],"request":"Bota a música “Don't Stop Believin'” do Journey","queries":["Don't Stop Believin' Journey"],"action":"play"},
+    {"id":"hold-artist","work_id":"any_adele","artist_id":"adele","language":"en","tags":["artist_only","polite"],"request":"Bom dia, Jarvis. Coloque uma da Adele pra mim, por favor","queries":["Adele"],"action":"play"},
+    {"id":"hold-title","work_id":"toca_pra_mim","artist_id":"fictional_hold","language":"pt","tags":["command_words","quoted"],"request":"Coloque a faixa “Toca Pra Mim”","queries":["Toca Pra Mim"],"action":"play"},
+    {"id":"hold-missing","work_id":"missing_hold","artist_id":"none_hold","language":"pt","tags":["missing_content","greeting"],"request":"Boa tarde, Jarvis, pode tocar?","queries":[],"action":"clarify"}
+  ],
+  "selection": [
+    {"id":"hold-select-later","tags":["later","foreign_title"],"query":"Dernière Danse Indila","goal":{"title":"Dernière Danse","artist":"Indila"},"expected_ids":["holdsong001"],"rows":[{"video_id":"holdsong002","title":"Indila - Outra Faixa","channel":"Indila","position":1},{"video_id":"holdsong001","title":"Indila - Derniere Danse (Official Video)","channel":"IndilaVEVO","position":9}]},
+    {"id":"hold-select-numeric","tags":["numeric","spacing"],"query":"99 Luftballons Nena","goal":{"title":"99 Luftballons","artist":"Nena"},"expected_ids":["holdsong003"],"rows":[{"video_id":"holdsong003","title":"NENA - 99 Luftballons [Official Video]","channel":"Nena","position":2},{"video_id":"holdsong004","title":"Nena - 98 Luftballons","channel":"Nena","position":1}]},
+    {"id":"hold-select-japanese","tags":["non_latin"],"query":"夜に駆ける YOASOBI","goal":{"title":"夜に駆ける","artist":"YOASOBI"},"expected_ids":["holdsong005"],"rows":[{"video_id":"holdsong005","title":"YOASOBI「夜に駆ける」Official Music Video","channel":"YOASOBI","position":4},{"video_id":"holdsong006","title":"YOASOBI - Different Track","channel":"YOASOBI","position":1}]},
+    {"id":"hold-select-phonetic","tags":["voice_error","proper_name"],"query":"Take Five Deiv Brubeck","goal":{"title":"Take Five","artist":"Deiv Brubeck"},"expected_ids":["holdsong007"],"rows":[{"video_id":"holdsong007","title":"Dave Brubeck - Take Five (Official Audio)","channel":"Dave Brubeck","position":3},{"video_id":"holdsong008","title":"Dave Brubeck - Another Tune","channel":"Dave Brubeck","position":1}]},
+    {"id":"hold-select-version","tags":["ambiguity","version"],"query":"Losing My Religion R.E.M.","goal":{"title":"Losing My Religion","artist":"R.E.M."},"expected_ids":[],"reason":"ambiguous_results","rows":[{"video_id":"holdsong009","title":"R.E.M. - Losing My Religion (Official Video)","channel":"R.E.M.","position":1},{"video_id":"holdsong010","title":"R.E.M. - Losing My Religion (Live)","channel":"R.E.M.","position":2}]},
+    {"id":"hold-select-inadequate","tags":["essential_content","excluded_type"],"query":"Águas de Março Elis Regina","goal":{"title":"Águas de Março","artist":"Elis Regina"},"expected_ids":[],"rows":[{"video_id":"holdsong011","title":"Águas de Março Elis Regina Cover","channel":"Cover Music","position":1},{"video_id":"holdsong012","title":"Elis Regina - Outra Canção","channel":"Elis Regina","position":2}]}
+  ]
+}

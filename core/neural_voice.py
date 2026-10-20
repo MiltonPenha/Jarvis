@@ -31,10 +31,11 @@ class NeuralVoice:
                                        download_dir=path.parent)
         return self._voice
 
-    def synthesize(self,text,path):
+    def synthesize(self,text,path,profile=None):
         from piper import SynthesisConfig
         voice=self.prepare()
-        profile=SynthesisConfig(length_scale=config.PIPER_LENGTH_SCALE,noise_scale=.62,noise_w_scale=.75,
+        if profile not in (None,'original','natural'):raise ValueError('Perfil Piper inválido.')
+        profile=SynthesisConfig(length_scale=1.0 if profile=='natural' else config.PIPER_LENGTH_SCALE,noise_scale=.62,noise_w_scale=.75,
                                 normalize_audio=True,volume=.92)
         with self._synthesis_lock,wave.open(str(path),'wb') as output:
             voice.synthesize_wav(text,output,syn_config=profile)

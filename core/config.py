@@ -41,10 +41,18 @@ class Config:
     QWEN_IDLE_SECONDS = 180
     STT_LANGUAGE = 'pt-BR'
     VAD_THRESHOLD = float(os.getenv('JARVIS_VAD_THRESHOLD','0.004'))
+    VOICE_SILENCE_SECONDS = max(.3,min(4.,float(os.getenv('JARVIS_VOICE_SILENCE_SECONDS','1.2'))))
+    VOICE_MAX_SECONDS = max(5.,min(60.,float(os.getenv('JARVIS_VOICE_MAX_SECONDS','20'))))
+    VOICE_PREROLL_SECONDS = max(.1,min(1.,float(os.getenv('JARVIS_VOICE_PREROLL_SECONDS','0.3'))))
+    WHISPER_BEAM_SIZE = max(1,min(8,int(os.getenv('JARVIS_WHISPER_BEAM_SIZE','3'))))
+    WHISPER_CONTEXT = os.getenv('JARVIS_WHISPER_CONTEXT','Conversa em português brasileiro. O assistente se chama Jarvis. Aplicativos, YouTube, títulos de músicas, artistas, rap e nomes estrangeiros.')[:1000]
+    AUDIO_DIAGNOSTICS_HOURS = max(0.,min(24.,float(os.getenv('JARVIS_AUDIO_DIAGNOSTICS_HOURS','0'))))
+    SPEECH_TIMEOUT = max(5.,min(120.,float(os.getenv('JARVIS_SPEECH_TIMEOUT','45'))))
     INPUT_DEVICE = os.getenv('JARVIS_INPUT_DEVICE') or None
     OUTPUT_DEVICE = os.getenv('JARVIS_OUTPUT_DEVICE') or None
     MAX_STEPS = int(os.getenv('JARVIS_MAX_STEPS', '6'))
     MAX_OUTPUT_TOKENS = int(os.getenv('JARVIS_MAX_OUTPUT_TOKENS', '1500'))
+    MAX_TASK_TOKENS = max(1,int(os.getenv('JARVIS_MAX_TASK_TOKENS','24000')))
     MAX_CONTEXT_CHARS = int(os.getenv('JARVIS_MAX_CONTEXT_CHARS', '24000'))
     TASK_TIMEOUT = int(os.getenv('JARVIS_TASK_TIMEOUT', '120'))
     MAX_DAILY_TASKS = int(os.getenv('JARVIS_MAX_DAILY_TASKS', '30'))
@@ -61,6 +69,8 @@ def settings():
         'tts_provider': config.TTS_PROVIDER, 'tts_voice': config.TTS_VOICE,
         'stt_provider': config.STT_PROVIDER, 'speech_enabled': True,
         'input_device':config.INPUT_DEVICE or '',
+        'voice_busy_policy':'wait',
+        'piper_profile':'original',
         'input_price_per_million': None, 'output_price_per_million': None, 'prices_updated': None,
     }
     path = config.DATA_DIR / 'settings.json'

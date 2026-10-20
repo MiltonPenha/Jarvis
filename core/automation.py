@@ -1,9 +1,9 @@
 """Windows conveniences with explicit targets; never interprets model text as shell."""
-import ctypes
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 from urllib.parse import urlparse
 from datetime import datetime
 from core.config import config
@@ -15,6 +15,50 @@ class AutomationService:
             'explorer':'explorer.exe'}
     SITES = {'youtube':'https://www.youtube.com','google':'https://www.google.com',
              'github':'https://github.com','whatsapp':'https://web.whatsapp.com'}
+
+    def __init__(self):
+        self._catalog=None
+        self._catalog_stamp=0
+
+    def app_catalog(self):
+        """Names from installed Windows app registrations, not executable text from a model."""
+        if self._catalog is not None and time.monotonic()-self._catalog_stamp<300:
+            return self._catalog
+        result={}
+        if os.name=='nt':
+            import winreg
+            for hive in (winreg.HKEY_CURRENT_USER,winreg.HKEY_LOCAL_MACHINE):
+                for view in (winreg.KEY_WOW64_64KEY,winreg.KEY_WOW64_32KEY):
+                    try:
+                        with winreg.OpenKey(hive,r'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths',0,winreg.KEY_READ|view) as key:
+                            for index in range(winreg.QueryInfoKey(key)[0]):
+                                name=winreg.EnumKey(key,index)
+                                try:
+                                    with winreg.OpenKey(key,name) as entry:
+                                        target=Path(os.path.expandvars(winreg.QueryValue(entry,None).strip('"')))
+                                        if target.is_file() and target.suffix.lower()=='.exe': result[target.stem.casefold()]=str(target)
+                                except OSError: continue
+                    except OSError: continue
+            import pythoncom
+            from win32com.client import Dispatch
+            pythoncom.CoInitialize()
+            try:
+                shell=Dispatch('WScript.Shell')
+                for key in ('APPDATA','PROGRAMDATA'):
+                    folder=Path(os.environ.get(key,''))/'Microsoft/Windows/Start Menu/Programs'
+                    if not folder.is_dir(): continue
+                    for link in list(folder.rglob('*.lnk'))[:250]:
+                        if any(word in link.stem.casefold() for word in ('uninstall','desinstal','remove','setup','install','update','repair')): continue
+                        try:
+                            target=Path(shell.CreateShortcut(str(link)).TargetPath)
+                            if target.is_file() and target.suffix.lower()=='.exe':
+                                result.setdefault(link.stem.casefold(),str(link))
+                        except Exception: continue
+            finally:
+                shell=None
+                pythoncom.CoUninitialize()
+        self._catalog=result; self._catalog_stamp=time.monotonic()
+        return result
 
     def open_url(self,url):
         parsed=urlparse(url)
@@ -32,6 +76,10 @@ class AutomationService:
             self.open_url(target)
         elif name in ('obsidian','cofre'):
             os.startfile(config.OBSIDIAN_VAULT_PATH)
+        elif name in self.app_catalog() and name not in self.APPS:
+            target=self.app_catalog()[name]
+            if Path(target).suffix.lower()=='.lnk': os.startfile(target)
+            else: subprocess.Popen([target],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         elif name in self.APPS:
             app=self.APPS[name]
             found=shutil.which(app)
@@ -39,7 +87,13 @@ class AutomationService:
                 relative='Google/Chrome/Application/chrome.exe' if app=='chrome.exe' else 'Microsoft/Edge/Application/msedge.exe'
                 found=next((str(Path(os.environ.get(key,''))/relative) for key in ('PROGRAMFILES','PROGRAMFILES(X86)','LOCALAPPDATA') if (Path(os.environ.get(key,''))/relative).is_file()),None)
             if not found:
-                raise FileNotFoundError('Aplicativo não localizado: '+name)
+                registered=self.app_catalog().get(name) or self.app_catalog().get(Path(app).stem.casefold())
+                if registered:
+                    if Path(registered).suffix.lower()=='.lnk':
+                        os.startfile(registered)
+                        return True,'Solicitação de abertura enviada ao Windows: '+name
+                    found=registered
+                else: raise FileNotFoundError('Aplicativo não localizado: '+name)
             if Path(found).suffix.lower() in ('.cmd','.bat'):
                 # Windows' shell treatment of batch files is not an accepted tool path.
                 code_exe=Path(found).parent.parent/'Code.exe'
@@ -57,14 +111,6 @@ class AutomationService:
                 checked_path(root,path.relative_to(root))
             os.startfile(str(path))
         return True,'Solicitação de abertura enviada ao Windows: '+target
-
-    def media_key(self,key):
-        codes={'play_pause':0xB3,'next':0xB0,'previous':0xB1,'stop':0xB2,'volume_up':0xAF,'volume_down':0xAE,'mute':0xAD}
-        if key not in codes:
-            raise ValueError('Controle de mídia inválido.')
-        user=ctypes.windll.user32
-        user.keybd_event(codes[key],0,0,0);user.keybd_event(codes[key],0,2,0)
-        return {'verified':True,'command_sent':key,'note':'Evento enviado ao Windows; estado do player não é observável.'}
 
     def take_screenshot(self):
         import pyautogui

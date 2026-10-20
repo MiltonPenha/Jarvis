@@ -1,9 +1,10 @@
 @echo off
 cd /d "%~dp0"
+echo Iniciando o JARVIS. Aguarde o servidor ficar pronto...
 if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" run_jarvis.py %*
+  ".venv\Scripts\python.exe" -u run_jarvis.py %*
 ) else (
-  python run_jarvis.py %*
+  python -u run_jarvis.py %*
 )
 if errorlevel 1 (
   echo.

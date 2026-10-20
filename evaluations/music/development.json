@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "split": "development",
+  "cases": [
+    {"id":"dev-tauz","work_id":"madara","artist_id":"tauz","language":"pt","tags":["conversation","proper_name"],"request":"Toca pra mim a música TAUZ MADARA","queries":["TAUZ MADARA"],"action":"play"},
+    {"id":"dev-minecraft","work_id":"minecraft","artist_id":"tauz","language":"pt","tags":["voice_like","proper_name"],"request":"Jarvis, toque Rap do Minecraft do TAUZ","queries":["Rap do Minecraft TAUZ"],"action":"play","record":true},
+    {"id":"dev-happy","work_id":"happy","artist_id":"pharrell","language":"en","tags":["greeting","english_title"],"request":"Boa tarde, Jarvis. Consegue colocar Happy do Pharrell Williams pra mim?","queries":["Happy Pharrell Williams"],"action":"play"},
+    {"id":"dev-seven","work_id":"seven","artist_id":"jungkook","language":"en","tags":["numeric","spacing"],"request":"Jarvis, toca música 7 de Jungkook","queries":["7 Jungkook"],"action":"play"},
+    {"id":"dev-cupula","work_id":"cupula","artist_id":"hariel","language":"pt","tags":["accent","spacing"],"request":"Toque acúpula de Hariel","queries":["acúpula Hariel"],"action":"play"},
+    {"id":"dev-queen","work_id":"bohemian","artist_id":"queen","language":"en","tags":["polite","english_title"],"request":"Jarvis, por favor, toque Bohemian Rhapsody do Queen","queries":["Bohemian Rhapsody Queen"],"action":"play","record":true},
+    {"id":"dev-pra-mim","work_id":"pra_mim","artist_id":"unspecified_dev","language":"pt","tags":["protected_title","command_words"],"request":"Toque a música Pra Mim","queries":["Pra Mim"],"action":"play","record":true},
+    {"id":"dev-musica","work_id":"musica_para_mim","artist_id":"unspecified_dev","language":"pt","tags":["quoted","command_words"],"request":"Quero ouvir “Música Para Mim”","queries":["Música Para Mim"],"action":"play"},
+    {"id":"dev-nx","work_id":"razoes","artist_id":"nxzero","language":"pt","tags":["accent","acronym"],"request":"Quero ouvir Razões e Emoções do NX Zero","queries":["Razões e Emoções NX Zero"],"action":"play"},
+    {"id":"dev-guns","work_id":"any_guns","artist_id":"guns","language":"en","tags":["greeting","artist_only"],"request":"Boa noite, JARVIS, consegue tocar uma música do Guns N’ Roses pra mim?","queries":["Guns N’ Roses"],"action":"play"},
+    {"id":"dev-daft","work_id":"one_more_time","artist_id":"daft","language":"en","tags":["service","multi_step"],"request":"Abra o YouTube e toque One More Time do Daft Punk","queries":["One More Time Daft Punk"],"action":"play","service":"youtube"},
+    {"id":"dev-chico","work_id":"construcao","artist_id":"chico","language":"pt","tags":["accent","conversation"],"request":"Pesquisa por Construção de Chico Buarque e coloca pra tocar","queries":["Construção Chico Buarque"],"action":"play"},
+    {"id":"dev-missing","work_id":"missing_dev","artist_id":"none_dev","language":"pt","tags":["missing_content"],"request":"Toca pra mim uma música","queries":[],"action":"clarify"},
+    {"id":"dev-negated","work_id":"negation_dev","artist_id":"none_dev","language":"pt","tags":["negation"],"request":"Não toque essa música agora","queries":[],"action":"no_play"}
+  ],
+  "selection": [
+    {"id":"dev-select-first","tags":["first","punctuation"],"query":"Bohemian Rhapsody Queen","goal":{"title":"Bohemian Rhapsody","artist":"Queen"},"expected_ids":["devsong0001"],"rows":[{"video_id":"devsong0001","title":"Queen – Bohemian Rhapsody (Official Video)","channel":"Queen Official","position":1},{"video_id":"devsong0002","title":"Queen - Another Song","channel":"Queen Official","position":2}]},
+    {"id":"dev-select-later","tags":["later","accent","metadata"],"query":"Construção Chico Buarque","goal":{"title":"Construção","artist":"Chico Buarque"},"expected_ids":["devsong0003"],"rows":[{"video_id":"devsong0004","title":"Outra Construção","channel":"Outro Artista","position":1},{"video_id":"devsong0003","title":"Chico Buarque - CONSTRUCAO (Áudio Oficial)","channel":"Chico Buarque","position":8}]},
+    {"id":"dev-select-phonetic","tags":["voice_error","proper_name"],"query":"Rap do Minecraft do Taus","goal":{"title":"Rap do Minecraft","artist":"Taus"},"expected_ids":["devsong0005"],"rows":[{"video_id":"devsong0006","title":"TAUZ - Rap Game","channel":"Tauz","position":1},{"video_id":"devsong0005","title":"Rap do Minecraft | Tauz RapGame 06","channel":"Tauz","position":3}]},
+    {"id":"dev-select-ambiguity","tags":["ambiguity"],"query":"Happy","goal":{"title":"Happy"},"expected_ids":[],"reason":"ambiguous_results","rows":[{"video_id":"devsong0007","title":"Pharrell Williams - Happy (Official Video)","channel":"Pharrell Williams","position":1},{"video_id":"devsong0008","title":"Mudvayne - Happy (Official Video)","channel":"Mudvayne","position":2}]},
+    {"id":"dev-select-missing","tags":["essential_content"],"query":"Rap do Minecraft TAUZ","goal":{"artist":"TAUZ"},"expected_ids":[],"rows":[{"video_id":"devsong0009","title":"Tauz - Rap Game","channel":"Tauz","position":1}]},
+    {"id":"dev-select-words","tags":["command_words","quoted"],"query":"Pra Mim","goal":{"title":"Pra Mim","protected_title":true},"expected_ids":["devsong0010"],"rows":[{"video_id":"devsong0010","title":"Pra Mim","channel":"Artista Exemplo","position":1}]}
+  ]
+}

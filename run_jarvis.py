@@ -6,7 +6,6 @@ import uvicorn
 from core.config import config
 from core.safety import atomic_write
 from core.launcher import is_jarvis_running,open_hud
-import server
 
 def main():
     parser = argparse.ArgumentParser()
@@ -22,6 +21,7 @@ def main():
                 print(f'JARVIS já está ativo: http://127.0.0.1:{config.PORT}')
                 return
             raise SystemExit(f'A porta {config.PORT} já está ocupada. Nenhuma segunda instância foi iniciada.')
+    import server
     import os
     atomic_write(config.DATA_DIR/'server.pid',str(os.getpid()))
     uvserver = uvicorn.Server(uvicorn.Config(server.app,host=config.HOST,port=config.PORT,log_level='warning'))
@@ -38,7 +38,10 @@ def main():
             await uvserver.serve()
         finally:
             opening.cancel()
-            (config.DATA_DIR/'server.pid').unlink(missing_ok=True)
+            marker=config.DATA_DIR/'server.pid'
+            try:
+                if marker.read_text(encoding='utf-8').strip()==str(os.getpid()):marker.unlink(missing_ok=True)
+            except OSError:pass
     asyncio.run(run())
 
 if __name__=='__main__':

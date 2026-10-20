@@ -1,0 +1,9 @@
+{
+  "version":1,
+  "purpose":"Small live production suite; these works belong to development, never to the tuning holdout.",
+  "cases":[
+    {"id":"live-queen","request":"Jarvis, toque Bohemian Rhapsody do Queen","content":"Bohemian Rhapsody Queen","speech":false},
+    {"id":"live-daft","request":"Coloque One More Time do Daft Punk no YouTube","content":"One More Time Daft Punk","speech":false},
+    {"id":"live-nx","request":"Quero ouvir Razões e Emoções do NX Zero","content":"Razões e Emoções NX Zero","speech":true}
+  ]
+}

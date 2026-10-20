@@ -1,7 +1,7 @@
 class ReactorVisuals {
   initSphereParticles() {
     this.particles = [];
-    const count = 160;
+    const count = 96;
     for (let i = 0; i < count; i++) {
       const u = Math.random();
       const v = Math.random();
@@ -24,7 +24,7 @@ class ReactorVisuals {
     let last=0;
     const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const render = (timestamp) => {
-      if(!document.hidden&&timestamp-last>=(reduced?300:33)){
+      if(!document.hidden&&(last===0||timestamp-last>=(reduced?1000:['LISTENING','PROCESSING','EXECUTING'].includes(this.state)?50:100))){
         this.drawGoldenHolographicSphere();
         this.updateEqBars();
         last=timestamp;
@@ -46,7 +46,7 @@ class ReactorVisuals {
     // Continuous 3D rotation
     this.yaw += 0.009 * this.speedFactor;
     this.roll += 0.003 * this.speedFactor;
-    const audioAmp = (this.audioLevel * 45) + (this.state === 'SPEAKING' ? 16 : (this.state === 'LISTENING' ? 8 : 2));
+    const audioAmp = (this.audioLevel * 45) + (this.speechPhase === 'playing' ? 16 : (this.state === 'LISTENING' ? 8 : 2));
 
     // 3D rotation matrix
     const cosY = Math.cos(this.yaw), sinY = Math.sin(this.yaw);

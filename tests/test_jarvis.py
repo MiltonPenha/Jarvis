@@ -253,7 +253,7 @@ class MicrophoneTests(unittest.TestCase):
         with patch.object(audio,'record_phrase',return_value=samples), \
              patch.object(audio,'transcribe_audio',return_value='Olá Jarvis') as transcribe:
             self.assertEqual(audio.listen_and_transcribe(),'Olá Jarvis')
-            transcribe.assert_called_once_with(samples,samplerate=48000)
+            transcribe.assert_called_once_with(samples,samplerate=48000,vocabulary='')
         with patch.object(audio,'record_phrase',return_value=None),patch.object(audio,'transcribe_audio') as transcribe:
             self.assertIsNone(audio.listen_and_transcribe())
             transcribe.assert_not_called()
@@ -395,12 +395,12 @@ class FishAudioTests(unittest.IsolatedAsyncioTestCase):
                     await synthesize('teste',ROOT/'invalid.mp3',transport=httpx.MockTransport(lambda r:httpx.Response(200,headers=headers,content=content)))
             self.assertFalse((ROOT/'invalid.mp3').exists())
 
-    async def test_missing_key_is_visible_to_user_without_playback(self):
+    async def test_online_voice_is_blocked_without_playback(self):
         audio=AudioManager()
         with patch('core.audio_manager.settings',return_value={'tts_provider':'fish-audio'}), \
              patch('core.fish_voice.provider_key',return_value=''),patch('sounddevice.play') as play:
             result=await asyncio.to_thread(audio.speak,'Senhor, estou pronto.')
-        self.assertEqual(result['state'],'failed');self.assertIn('FISH_API_KEY',result['error'])
+        self.assertEqual(result['state'],'failed');self.assertIn('somente sintetizadores locais',result['error'])
         play.assert_not_called()
 
 
@@ -437,15 +437,13 @@ class APITests(unittest.TestCase):
         for key in ('provider','model','input_device','stt_provider'):
             self.assertEqual(before[key],after[key])
 
-    def test_fish_voice_preserves_ai_microphone_and_hides_key(self):
+    def test_online_voice_rejected_without_changing_local_configuration(self):
         before=settings()
         with patch.dict(os.environ,{'FISH_API_KEY':'private-fish-api-fixture'}):
             response=self.client.post('/api/settings',json={'tts_provider':'fish-audio'})
-        self.assertEqual(response.status_code,200)
-        self.assertEqual(response.json()['fish_voice']['voice_id'],'a5b93aeddcc948c19ea04f0afe9d178c')
-        self.assertTrue(response.json()['credentials']['fish-audio'])
+        self.assertEqual(response.status_code,400)
         self.assertNotIn('private-fish-api-fixture',response.text)
-        for key in ('provider','model','input_device','stt_provider'):
+        for key in ('provider','model','input_device','stt_provider','tts_provider'):
             self.assertEqual(before[key],settings()[key])
         self.assertEqual(self.client.post('/api/settings',json={'FISH_API_KEY':'fixture'}).status_code,400)
 
@@ -471,17 +469,18 @@ class APITests(unittest.TestCase):
         self.client.post('/api/settings',json={'input_device':''})
 
     def test_task_without_model_fails_visibly_and_deduplicates(self):
-        body={'id':'api-no-model','session':'api','command':'Olá'}
-        first=self.client.post('/api/command',json=body)
-        self.assertEqual(first.status_code,202)
-        second=self.client.post('/api/command',json=body)
-        self.assertEqual(second.json()['id'],body['id'])
-        import time
-        for _ in range(20):
-            task=self.client.get('/api/tasks/'+body['id']).json()
-            if task['state']=='failed':break
-            time.sleep(.05)
-        self.assertEqual(task['state'],'failed');self.assertIn('modelo',task['error'])
+        body={'id':'api-no-model','session':'api','command':'Analise este pedido novo que exige planejamento'}
+        with patch('core.assistant_service.settings',return_value={'provider':'openai-api','model':'','speech_enabled':False}):
+            first=self.client.post('/api/command',json=body)
+            self.assertEqual(first.status_code,202)
+            second=self.client.post('/api/command',json=body)
+            self.assertEqual(second.json()['id'],body['id'])
+            import time
+            for _ in range(20):
+                task=self.client.get('/api/tasks/'+body['id']).json()
+                if task['state']=='failed':break
+                time.sleep(.05)
+            self.assertEqual(task['state'],'failed');self.assertIn('modelo',task['error'])
 
     def test_websocket_authenticated(self):
         with self.client.websocket_connect('/ws') as ws:
@@ -561,8 +560,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             return {'response':'Arquivo criado com sucesso!','usage':{'input_tokens':1}}
         self.service.runtime.run=run
         done=await self.finish(await self.service.submit('Teste','s','false-success'))
-        self.assertEqual(done['state'],'failed');self.assertIsNone(done['result'])
-        self.assertFalse(any(e['type']=='jarvis_response' for e in self.events))
+        self.assertEqual(done['state'],'failed');self.assertIn('falha',done['result'])
+        replies=[e for e in self.events if e['type']=='jarvis_response']
+        self.assertEqual(len(replies),1);self.assertEqual(replies[0]['meta']['outcome'],'failed')
+        self.assertNotIn('Arquivo criado com sucesso',replies[0]['response'])
 
     async def test_resume_with_checkpoints_and_uncertain_block(self):
         self.service.store.create('resume-test','s','Teste')

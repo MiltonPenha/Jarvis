@@ -1,0 +1,8 @@
+[
+  {"id":"confirmation","text":"Senhor, estou reproduzindo Razões e Emoções, do NX Zero."},
+  {"id":"failure","text":"Senhor, não consegui confirmar a reprodução. A resposta está na tela."},
+  {"id":"question","text":"Senhor, prefere a gravação original ou a versão ao vivo?"},
+  {"id":"numbers","text":"Senhor, o volume está em 47%. Seu alarme está marcado para 18:30."},
+  {"id":"names","text":"Senhor, encontrei Happy, de Pharrell Williams, e Sweet Child O' Mine, do Guns N' Roses."},
+  {"id":"long","text":"Senhor, encontrei os resultados e preservei sua escolha. Ainda preciso confirmar que o vídeo começou a tocar antes de anunciar a reprodução. Se houver mais de uma versão da mesma música, perguntarei qual prefere. O volume continuará como foi ajustado. Você pode interromper minha fala e corrigir o pedido. Os detalhes completos permanecem na tela para consulta."}
+]

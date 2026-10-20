@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>J.A.R.V.I.S. - Sistema de Inteligência Artificial</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="sci-fi-theme">
@@ -50,94 +47,37 @@
     </div>
   </header>
 
-  <!-- Main Holographic HUD Container -->
+  <aside class="system-strip" aria-label="Sistema e atalhos">
+    <div class="system-metrics" aria-label="Uso do computador">
+      <span class="compact-metric">CPU <strong id="cpu-val">0%</strong></span>
+      <span class="compact-metric">RAM <strong id="ram-val">0%</strong></span>
+    </div>
+    <details class="utility-details" id="system-details">
+      <summary>Detalhes do sistema</summary>
+      <dl class="system-details-grid">
+        <div><dt>Processador</dt><dd id="cpu-sub">—</dd></div>
+        <div><dt>Memória em uso / total</dt><dd id="ram-sub">—</dd></div>
+        <div><dt>Armazenamento em uso</dt><dd id="disk-val">—</dd></div>
+        <div><dt>Espaço livre / total</dt><dd id="disk-sub">—</dd></div>
+        <div><dt>Tempo ligado</dt><dd id="uptime-val">—</dd></div>
+        <div><dt>Estação</dt><dd id="host-val">—</dd></div>
+      </dl>
+    </details>
+    <details class="utility-details quick-actions-box" id="quick-actions">
+      <summary>Comandos rápidos</summary>
+      <div class="macro-buttons">
+        <button class="macro-btn" data-action="status">⚡ Status do sistema</button>
+        <button class="macro-btn" data-action="music">🎵 Tocar música</button>
+        <button class="macro-btn" data-action="browser">🌐 Abrir Google</button>
+        <button class="macro-btn" data-cmd="pesquisar sobre novidades de inteligência artificial">🔍 Pesquisar IA</button>
+        <button class="macro-btn" data-action="vault">🟣 Cofre Obsidian</button>
+        <button class="macro-btn" data-action="screenshot">📸 Tirar print</button>
+        <button class="macro-btn" data-action="macro:modo trabalho">💻 Modo trabalho</button>
+      </div>
+    </details>
+  </aside>
+
   <main class="hud-main">
-    
-    <!-- Left Column: System Telemetry -->
-    <aside class="hud-panel telemetry-panel">
-      <div class="panel-header">
-        <span class="panel-tag">[SYS.01]</span>
-        <h3>TELEMETRIA DO SISTEMA</h3>
-        <div class="panel-line"></div>
-      </div>
-
-      <div class="telemetry-grid">
-        <!-- CPU Widget -->
-        <div class="gauge-card">
-          <div class="gauge-ring-container">
-            <svg class="gauge-svg" viewBox="0 0 100 100">
-              <circle class="gauge-bg" cx="50" cy="50" r="40" />
-              <circle class="gauge-bar" id="cpu-gauge" cx="50" cy="50" r="40" />
-            </svg>
-            <div class="gauge-val" id="cpu-val">0%</div>
-          </div>
-          <div class="gauge-info">
-            <span class="gauge-title">CPU PROCESSOR</span>
-            <span class="gauge-sub" id="cpu-sub">0 Cores // 0.0 GHz</span>
-          </div>
-        </div>
-
-        <!-- RAM Widget -->
-        <div class="gauge-card">
-          <div class="gauge-ring-container">
-            <svg class="gauge-svg" viewBox="0 0 100 100">
-              <circle class="gauge-bg" cx="50" cy="50" r="40" />
-              <circle class="gauge-bar" id="ram-gauge" cx="50" cy="50" r="40" />
-            </svg>
-            <div class="gauge-val" id="ram-val">0%</div>
-          </div>
-          <div class="gauge-info">
-            <span class="gauge-title">MEMÓRIA RAM</span>
-            <span class="gauge-sub" id="ram-sub">0.0 GB / 0.0 GB</span>
-          </div>
-        </div>
-
-        <!-- DISK C Widget -->
-        <div class="gauge-card">
-          <div class="gauge-ring-container">
-            <svg class="gauge-svg" viewBox="0 0 100 100">
-              <circle class="gauge-bg" cx="50" cy="50" r="40" />
-              <circle class="gauge-bar" id="disk-gauge" cx="50" cy="50" r="40" />
-            </svg>
-            <div class="gauge-val" id="disk-val">0%</div>
-          </div>
-          <div class="gauge-info">
-            <span class="gauge-title">ARMAZENAMENTO C:</span>
-            <span class="gauge-sub" id="disk-sub">0 GB Livres</span>
-          </div>
-        </div>
-
-        <!-- System Uptime & Host -->
-        <div class="telemetry-row">
-          <div class="data-block">
-            <span class="data-label">UPTIME DO PC</span>
-            <span class="data-val" id="uptime-val">--</span>
-          </div>
-          <div class="data-block">
-            <span class="data-label">ESTAÇÃO</span>
-            <span class="data-val" id="host-val">PC-GAMER</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Commands Matrix -->
-      <div class="quick-actions-box">
-        <div class="panel-header sub">
-          <span class="panel-tag">[MACROS]</span>
-          <h4>COMANDOS RÁPIDOS</h4>
-        </div>
-        <div class="macro-buttons">
-          <button class="macro-btn" data-action="status">⚡ Status do Sistema</button>
-          <button class="macro-btn" data-action="music">🎵 Tocar Música</button>
-          <button class="macro-btn" data-action="browser">🌐 Abrir Google</button>
-          <button class="macro-btn" data-cmd="pesquisar sobre novidades de inteligência artificial">🔍 Pesquisar IA</button>
-          <button class="macro-btn" data-action="vault">🟣 Cofre Obsidian</button>
-          <button class="macro-btn" data-action="screenshot">📸 Tirar Print</button>
-          <button class="macro-btn" data-action="macro:modo trabalho">💻 Modo Trabalho</button>
-        </div>
-      </div>
-    </aside>
-
     <!-- Center Stage: Arc Reactor & Audio Waveform -->
     <section class="center-stage">
       <div class="arc-reactor-wrapper">
@@ -147,7 +87,7 @@
         <!-- Core Center Glow Overlay -->
         <div class="reactor-center-glow">
           <div class="core-symbol">JARVIS</div>
-          <div class="core-subtext" id="core-state">CONECTANDO</div>
+          <div class="core-subtext" id="core-state" hidden>CONECTANDO</div>
         </div>
       </div>
 
@@ -177,13 +117,37 @@
       </div>
       <button class="macro-btn" id="mute-btn">DESLIGAR MICROFONE / PARAR VOZ</button>
       <p id="integration-status" class="integration-status">Verificando integração…</p>
+      <section class="request-feedback" aria-label="Pedido atual">
+        <div class="feedback-line"><span>PEDIDO</span><strong id="request-phase" hidden>Pronto</strong></div>
+        <span id="transcript-kind" class="feedback-label">Pedido reconhecido</span>
+        <p id="recognized-request">Seu próximo pedido aparecerá aqui.</p>
+        <div class="feedback-line"><span>VOZ LOCAL</span><strong id="speech-phase">Em espera</strong></div>
+        <p id="speech-detail">Microfone desligado.</p>
+      </section>
+
     </section>
+
+    <section class="task-workspace" aria-label="Tarefa e conversa">
+      <details class="content-feedback" id="task-content">
+        <summary>
+          <span class="feedback-line"><span>CONTEÚDO DA TAREFA</span><strong id="content-phase">Sem conteúdo</strong></span>
+          <span id="content-title">O conteúdo aparece aqui quando houver uma seleção.</span>
+          <span class="content-toggle" aria-hidden="true">Detalhes <span class="expand-symbol">⌄</span></span>
+        </summary>
+        <div class="content-details">
+          <p id="content-origin" class="content-origin"></p>
+          <p id="content-channel"></p>
+          <ol id="content-options" class="content-options" aria-label="Resultados da pesquisa"></ol>
+          <div class="feedback-line media-line"><span>MÍDIA</span><strong id="media-phase">Sem observação</strong></div>
+          <p id="media-title">O estado do player é independente do pedido.</p>
+        </div>
+      </details>
 
     <!-- Right Column: Conversational Terminal Feed -->
     <aside class="hud-panel terminal-panel">
       <div class="panel-header">
         <span class="panel-tag">[COM.02]</span>
-        <h3>TERMINAL DE COMANDOS</h3>
+        <h3>CONVERSA COM JARVIS</h3>
         <button class="clear-terminal-btn" id="clear-log-btn" title="Limpar Histórico">✕</button>
       </div>
 
@@ -212,6 +176,7 @@
         </button>
       </form>
     </aside>
+    </section>
 
   </main>
 
@@ -219,11 +184,12 @@
     <div class="panel-heading"><h2 id="panel-title">CENTRAL JARVIS</h2><button id="close-panel">Fechar</button></div>
     <p id="panel-message" role="status">Chaves são configuradas somente no backend. Nunca cole segredos aqui.</p>
     <section><h3>Modelo e voz</h3><div class="settings-grid">
-      <label>Provedor<select id="setting-provider"><option value="openai-api">OpenAI API</option><option value="gemini">Google Gemini</option></select></label>
+      <label>Provedor<select id="setting-provider"><option value="local-cpu">Local · CPU (sem API de IA)</option><option value="openai-api">OpenAI API</option><option value="gemini">Google Gemini</option></select></label>
       <label>Modelo<select id="setting-model" aria-describedby="models-status"><option value="">Selecione um modelo</option></select><span id="models-status" class="catalog-status" role="status"></span></label>
       <label>Fallback<select id="setting-fallback_provider"><option value="">Desativado</option><option value="openai-api">OpenAI API</option><option value="gemini">Google Gemini</option></select></label>
       <label>Modelo fallback<select id="setting-fallback_model" aria-describedby="fallback-models-status"><option value="">Fallback desativado</option></select><span id="fallback-models-status" class="catalog-status" role="status"></span></label>
-      <label>Síntese<select id="setting-tts_provider"><option value="qwen-local">JARVIS · Qwen local (CPU, sem GPU)</option><option value="fish-audio">JARVIS · Fish Audio (voz escolhida, online)</option><option value="piper">Faber · voz neural (local)</option><option value="offline">Voz brasileira do Windows (local)</option><option value="edge">Edge TTS (Microsoft, online)</option><option value="openai">OpenAI (modelo no backend)</option></select></label>
+      <label>Síntese<select id="setting-tts_provider"><option value="qwen-local">JARVIS · Qwen local (CPU, sem GPU)</option><option value="piper">Faber · Piper local (CPU)</option><option value="offline">Voz brasileira do Windows (local)</option></select></label>
+      <label>Ritmo do Piper<select id="setting-piper_profile"><option value="original">Original · mais pausado</option><option value="natural">Ritmo padrão do modelo</option></select></label>
       <label>Voz Edge<input id="setting-tts_voice" value="pt-BR-AntonioNeural"></label>
       <label>Transcrição<select id="setting-stt_provider"><option value="google-web">Google Web Speech (online)</option><option value="whisper-local">Whisper (local)</option><option value="openai">OpenAI (modelo no backend)</option></select></label>
       <label>Microfone<select id="setting-input_device"><option value="">Padrão do Windows</option></select></label>
@@ -231,13 +197,30 @@
     </div><button id="discover-models">Atualizar modelos</button><button id="save-settings">Salvar configurações</button>
     <p id="fish-voice-status" role="status" hidden></p>
     <p id="qwen-voice-status" role="status" hidden></p>
-    <p>Voz curta; texto completo no terminal. O áudio usa o microfone e os alto-falantes deste computador.</p><p id="microphone-status" role="status"></p></section>
+    <p>Voz local em CPU. O microfone fica reservado durante geração e reprodução para não reconhecer a própria resposta.</p><p id="microphone-status" role="status"></p>
+    <fieldset class="voice-comparison"><legend>Ouvir e comparar sem alterar a voz salva</legend>
+      <div class="settings-grid"><label>Frase<select id="voice-sample"><option value="confirmation">Confirmação de música</option><option value="failure">Falha</option><option value="question">Esclarecimento</option><option value="numbers">Números e porcentagens</option><option value="names">Títulos e artistas</option><option value="long">Resposta longa</option></select></label>
+      <label>Opção<select id="voice-preview-option"><option value="qwen-local:original">Qwen · voz atual</option><option value="piper:original">Piper Faber · pausado</option><option value="piper:natural">Piper Faber · ritmo padrão</option></select></label></div>
+      <button id="voice-preview">Ouvir frase</button><button id="voice-preview-stop" disabled>Parar comparação</button>
+      <p id="voice-preview-status" role="status">A comparação usa a mesma fila de saída. A Qwen pode demorar; naturalidade e pronúncia precisam de sua escuta.</p>
+    </fieldset>
+      <label>Novo pedido de voz durante tarefa ou fala<select id="setting-voice_busy_policy"><option value="wait">Aguardar e avisar quando estiver escutando</option><option value="interrupt">Interromper a tarefa desta conversa e escutar</option></select></label>
+      <pre id="voice-transcript" aria-live="polite"></pre></section>
+    <section><h3>Navegador · seu Chrome</h3>
+      <div class="settings-grid"><label>Conexão<select id="browser-mode"><option value="chrome">Meu Chrome habitual · autorização nativa</option><option value="isolated">Alternativa: perfil separado com login manual</option></select></label>
+      <label>Perfil Chrome<select id="browser-profile"></select></label></div>
+      <p id="browser-status" role="status">Consultando o Chrome…</p>
+      <button id="browser-save">Salvar perfil</button><button id="browser-authorize">Autorizar no Chrome</button><button id="browser-connect">Conectar</button>
+      <p>Na página aberta no Chrome, habilite a depuração remota desta instância e aceite a solicitação ao conectar. Depois entre na sua conta do YouTube, se necessário. A conta conectada ao Chrome não garante login no YouTube.</p>
+    </section>
     <section><h3>Memória essencial · Hermes</h3><button id="memory-refresh">Consultar memória</button><div id="memory-list"></div><label>Preferência explícita<textarea id="new-memory" maxlength="1000"></textarea></label><button id="memory-add">Lembrar e verificar</button><details><summary>Alterações de memória</summary><button id="memory-events-refresh">Consultar correções</button><pre id="memory-events"></pre></details></section>
     <section><h3>Obsidian · conhecimento e fontes</h3><label>Buscar notas<input id="vault-query"></label><button id="vault-search">Buscar</button><div id="vault-results"></div><label>Caminho da nota<input id="note-path" placeholder="Knowledge/Minha nota.md"></label><label>Conteúdo<textarea id="note-content" rows="7"></textarea></label><button id="vault-save">Salvar nota</button><p>Notas grandes são exibidas por trechos e não podem ser editadas parcialmente neste painel.</p></section>
+    <section><h3>Lembretes e alarmes locais</h3><p>O JARVIS precisa estar aberto e o computador acordado. Avisos vencidos aparecem ao reabrir.</p><button id="reminders-refresh">Atualizar avisos</button><div id="reminder-list"></div></section>
     <section><h3>Tarefas e checkpoints</h3><button id="tasks-refresh">Atualizar tarefas</button><div id="task-list"></div></section>
     <section><h3>Fontes consultadas</h3><div id="sources"></div></section>
     <details><summary>Diagnóstico, consumo e limites</summary><pre id="diagnostics"></pre><button id="usage-refresh">Consultar consumo</button><pre id="usage"></pre></details>
   </dialog>
+  <aside id="reminder-alert" role="alert" hidden><strong id="reminder-alert-text"></strong><button id="reminder-alert-dismiss">Encerrar aviso</button></aside>
   <script src="/static/reactor.js"></script>
   <script src="/static/app.js"></script>
 </body>

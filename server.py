@@ -16,6 +16,8 @@ from core.memory_obsidian import obsidian_memory
 from core.audio_manager import audio_manager
 from core.system_monitor import system_monitor
 from core.autostart import autostart_service
+from core.reminders import reminders
+from core.local_model import local_model, MODEL as LOCAL_MODEL
 
 COOKIE = secrets.token_urlsafe(32)
 connections = set()
@@ -23,6 +25,8 @@ send_lock = asyncio.Lock()
 shutdown_callback = None
 voice_runner = None
 voice_continuous = False
+voice_epoch = 0
+voice_requests = set()
 
 async def warm_transcription():
     try:
@@ -70,6 +74,27 @@ async def telemetry():
             await broadcast({'type':'telemetry','data':metrics})
         await asyncio.sleep(2)
 
+async def reminder_loop():
+    import time
+    sounded={}
+    while True:
+        due=await asyncio.to_thread(reminders.tick)
+        for item in due:
+            elapsed=time.monotonic()-sounded.get(item['id'],float('-inf'))
+            if elapsed>=(15 if item['kind']=='alarm' else 60):
+                sounded[item['id']]=time.monotonic()
+                await broadcast({'type':'reminder_due','reminder':item})
+                def sound():
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+                try:
+                    await asyncio.to_thread(sound)
+                except Exception:
+                    await broadcast({'type':'notice','text':'O aviso está no painel, mas o som do Windows não pôde ser reproduzido.'})
+        active={item['id'] for item in due}
+        sounded={key:value for key,value in sounded.items() if key in active}
+        await asyncio.sleep(1)
+
 @asynccontextmanager
 async def lifespan(app):
     assistant.store.recover()
@@ -81,6 +106,7 @@ async def lifespan(app):
     audio_manager.on_state_change = state
     audio_manager.on_audio_level = level
     periodic = asyncio.create_task(telemetry())
+    reminder_task=asyncio.create_task(reminder_loop())
     warmup=asyncio.create_task(warm_transcription()) if settings()['stt_provider']=='whisper-local' else None
     voice_warmup=asyncio.create_task(warm_voice()) if settings()['tts_provider'] in ('piper','qwen-local') else None
     try:
@@ -91,6 +117,8 @@ async def lifespan(app):
             voice_runner.cancel()
             await asyncio.gather(voice_runner,return_exceptions=True)
         periodic.cancel()
+        reminder_task.cancel()
+        await asyncio.gather(reminder_task,return_exceptions=True)
         with suppress(asyncio.CancelledError):
             await periodic
         await assistant.close()
@@ -174,7 +202,7 @@ async def local_action(req:LocalActionRequest):
     actions={
         'status':{'action':'system_status'},
         'vault':{'action':'open_target','path':'cofre'},
-        'browser':{'action':'open_target','path':'google'},
+        'browser':{'action':'browser_open','query':'google'},
         'music':{'action':'play_music','query':'música'},
         'screenshot':{'action':'screenshot'},
     }
@@ -189,7 +217,7 @@ async def local_action(req:LocalActionRequest):
         assistant.store.update(req.id,'running')
         await broadcast({'type':'state','state':'EXECUTING'})
         result=await asyncio.to_thread(ToolService(req.id).execute,actions[req.action])
-        ok=not result.get('error')
+        ok=not result.get('error') and result.get('verified') is not False and not result.get('needs_manual_verification')
         display=result.get('message') or json.dumps(result,ensure_ascii=False,indent=2)
         assistant.store.update(req.id,'completed' if ok else 'failed',result=display,error=result.get('error'),usage={'provider':'deterministic','api_calls':0,'input_tokens':0,'output_tokens':0,'estimated_usd':0})
         await broadcast({'type':'jarvis_response','response':display,'session':req.session})
@@ -226,6 +254,15 @@ async def resume(task_id:str):
 @app.get('/api/history')
 async def history(session:str='default'):
     valid_id(session)
+    tasks=assistant.store.list(session)
+    if tasks or settings()['provider']=='local-cpu':
+        messages=[]
+        for task in reversed(tasks):
+            preview=task.get('usage',{}).get('provider')=='voice-preview'
+            messages.append({'role':'user','content':'[Comparação de voz local]' if preview else task['prompt']})
+            if task.get('result'): messages.append({'role':'assistant','content':('[Prévia de voz] ' if preview else '')+task['result']})
+            elif task.get('error'): messages.append({'role':'assistant','content':task['error']})
+        return {'messages':messages}
     return await assistant.runtime.run({'operation':'history','session':session},timeout=30)
 
 @app.get('/api/settings')
@@ -235,9 +272,9 @@ async def get_settings():
     from core.qwen_voice import qwen_voice
     return {**s,'credentials':{p:bool(provider_key(p)) for p in ('openai-api','gemini','fish-audio')},
         'fish_voice':voice_status(),
-        'qwen_voice':qwen_voice.status(),
+        'qwen_voice':qwen_voice.status(),'local_model':local_model.status(),
         'vault':str(obsidian_memory.vault_dir),'workspace_roots':[str(p) for p in config.WORKSPACE_ROOTS],
-        'limits':{'steps':config.MAX_STEPS,'output_tokens_per_call':config.MAX_OUTPUT_TOKENS,'context_chars':config.MAX_CONTEXT_CHARS,
+        'limits':{'steps':config.MAX_STEPS,'output_tokens_per_call':config.MAX_OUTPUT_TOKENS,'task_tokens_soft':config.MAX_TASK_TOKENS,'context_chars':config.MAX_CONTEXT_CHARS,
                   'task_seconds':config.TASK_TIMEOUT,'daily_tasks':config.MAX_DAILY_TASKS,'daily_tokens_soft':config.MAX_DAILY_TOKENS}}
 
 @app.post('/api/settings')
@@ -246,15 +283,18 @@ async def save_settings(changes:dict):
     if set(changes)-set(current):
         raise ValueError('Configuração desconhecida. Credenciais e permissões só podem ser alteradas no backend.')
     candidate = {**current,**changes}
-    if candidate['provider'] not in ('openai-api','gemini') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
+    if candidate['provider'] not in ('openai-api','gemini','local-cpu') or candidate['fallback_provider'] not in ('','openai-api','gemini'):
         raise ValueError('Provedor inválido.')
-    if candidate['tts_provider'] not in ('edge','offline','piper','openai','fish-audio','qwen-local') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
+    if candidate['tts_provider'] not in ('offline','piper','qwen-local') or candidate['stt_provider'] not in ('google-web','whisper-local','openai'):
         raise ValueError('Provedor de áudio inválido.')
     for name in ('model','fallback_model','tts_voice'):
         if not isinstance(candidate[name],str) or len(candidate[name])>120 or not re.fullmatch(r'[a-zA-Z0-9_./:-]*',candidate[name]):
             raise ValueError('Identificador de modelo/voz inválido.')
     if not isinstance(candidate['speech_enabled'],bool):
         raise ValueError('speech_enabled deve ser booleano.')
+    if candidate['voice_busy_policy'] not in ('wait','interrupt'):
+        raise ValueError('Política de voz inválida: wait ou interrupt.')
+    if candidate['piper_profile'] not in ('original','natural'):raise ValueError('Perfil Piper inválido.')
     if not isinstance(candidate['input_device'],str) or len(candidate['input_device'])>300:
         raise ValueError('Microfone inválido.')
     if 'input_device' in changes and changes['input_device']:
@@ -267,6 +307,61 @@ async def save_settings(changes:dict):
     atomic_write(config.DATA_DIR/'settings.json',json.dumps(candidate,ensure_ascii=False,indent=2))
     return await get_settings()
 
+@app.get('/api/browser')
+async def browser_status():
+    from core.chrome_session import connection_status
+    from core.browser_control import browser_control
+    status=await asyncio.to_thread(connection_status)
+    return {**status,'connected':bool(browser_control.context),'connected_profile':browser_control.connected_profile}
+
+@app.post('/api/voice/preview')
+async def preview_voice(body:dict):
+    provider=body.get('provider','qwen-local');profile=body.get('profile','original')
+    if provider not in ('qwen-local','piper') or profile not in ('original','natural'):
+        raise ValueError('Escolha uma voz local e um perfil válido.')
+    cases=json.loads((config.BASE_DIR/'evaluations/voice_feedback.json').read_text(encoding='utf-8'))
+    case=next((row for row in cases if row['id']==body.get('sample')),None)
+    if not case:raise ValueError('Frase de comparação inválida.')
+    return await assistant.preview_voice(valid_id(body.get('session','')),case['text'],provider,profile)
+
+@app.get('/api/media/status')
+async def observed_media(session:str):
+    valid_id(session)
+    from core.browser_control import browser_control
+    from core.operational_context import context_for
+    if assistant.lock.locked():return {'state':'refreshing','observed':False}
+    return await asyncio.to_thread(browser_control.observe_media,context_for(session).media_tab_id)
+
+
+@app.post('/api/browser/settings')
+async def browser_settings_update(changes:dict):
+    from core.chrome_session import save_browser_settings,browser_settings
+    from core.browser_control import browser_control
+    if assistant.lock.locked():raise ValueError('Aguarde a tarefa atual antes de trocar a conexão do navegador.')
+    async with assistant.lock:
+        previous=browser_settings()
+        value=await asyncio.to_thread(save_browser_settings,changes)
+        if value!=previous:
+            await asyncio.to_thread(browser_control.close)
+            browser_control.mode=value['mode']
+    return await browser_status()
+
+
+@app.post('/api/browser/authorize')
+async def browser_authorize():
+    from core.chrome_session import open_authorization
+    return await asyncio.to_thread(open_authorization)
+
+
+@app.post('/api/browser/connect')
+async def browser_connect():
+    from core.browser_control import browser_control
+    from core.operational_context import context_for
+    if assistant.lock.locked():raise ValueError('Aguarde a tarefa atual antes de conectar.')
+    async with assistant.lock:
+        return await asyncio.to_thread(browser_control.tool,{'action':'browser_connect'},context_for('browser-setup'))
+
+
 @app.get('/api/audio/devices')
 async def audio_devices():
     from core.audio_devices import input_devices,resolve_input
@@ -275,13 +370,25 @@ async def audio_devices():
     except ValueError:selected=None
     from core.neural_voice import neural_voice
     return {'inputs':devices,'selected':selected,'last_capture':audio_manager.last_capture,
+            'microphone_busy':audio_manager._mic_lock.locked(),'speech_busy':audio_manager.is_speaking,
+            'task_busy':assistant.lock.locked(),
             'transcriber_ready':audio_manager._whisper is not None,'neural_voice_ready':neural_voice.ready}
 
 @app.get('/api/models')
 async def models(provider:str):
+    if provider=='local-cpu':
+        return {'provider':provider,'models':[LOCAL_MODEL] if local_model.prepared() else []}
     if provider not in ('openai-api','gemini'):
         raise ValueError('Provedor inválido.')
     return {'provider':provider,'models':await list_models(provider)}
+
+@app.get('/api/reminders')
+async def reminder_list():
+    return {'reminders':await asyncio.to_thread(reminders.list)}
+
+@app.post('/api/reminders/{identifier}/dismiss')
+async def reminder_dismiss(identifier:str):
+    return await asyncio.to_thread(reminders.dismiss,identifier)
 
 @app.get('/api/usage')
 async def usage():
@@ -327,41 +434,70 @@ async def autostart():
 
 @app.post('/api/audio/stop')
 async def audio_stop():
-    global voice_continuous
+    global voice_continuous,voice_epoch
     voice_continuous = False
+    voice_epoch += 1
     audio_manager.stop()
-    await broadcast({'type':'state','state':'CANCELLED'})
+    await broadcast({'type':'state','state':'EXECUTING' if assistant.lock.locked() else 'IDLE'})
     return {'status':'stopped'}
 
-async def listen(session,continuous=False):
+async def listen(session,continuous=False,request_id=None,epoch=None):
     global voice_continuous
+    from core.command_text import normalize_command,is_vocative
+    from core.voice_diagnostics import record_event
     voice_continuous = continuous
+    epoch=voice_epoch if epoch is None else epoch
+    request_id=request_id or secrets.token_hex(16)
+    loop=asyncio.get_running_loop()
+    def state(value):
+        if epoch==voice_epoch:
+            asyncio.run_coroutine_threadsafe(broadcast({'type':'state','state':value,'session':session,'voice_request_id':request_id}),loop).result(timeout=4)
     failed=False
     try:
+        if assistant.lock.locked() or audio_manager.is_speaking:
+            await broadcast({'type':'notice','session':session,'text':'Pedido de microfone recebido. Aguarde o indicador ESCUTANDO; Interromper continua disponível.'})
+            if settings()['voice_busy_policy']=='interrupt':await assistant.interrupt_session(session,reason='listen_interrupt')
+            await broadcast({'type':'state','state':'WAITING','session':session,'voice_request_id':request_id})
         while True:
-            if not assistant.lock.locked() and not audio_manager.is_speaking:
-                text = await asyncio.to_thread(audio_manager.listen_and_transcribe)
-                await broadcast({'type':'audio_diagnostics','data':audio_manager.last_capture})
+            if epoch!=voice_epoch:break
+            if (not continuous or not assistant.lock.locked()) and not audio_manager.is_speaking:
+                from core.operational_context import context_for
+                text = await asyncio.to_thread(audio_manager.listen_and_transcribe,on_state=state,vocabulary=context_for(session).recognition_hints())
+                if epoch!=voice_epoch:break
+                await broadcast({'type':'audio_diagnostics','data':audio_manager.last_capture,'session':session})
                 if text:
-                    if not continuous or re.search(r'\b(jarvis|jarbas|jervis)\b',text,re.I):
-                        await assistant.submit(text,session)
+                    normalized=normalize_command(text)
+                    trace={'source':'voice','original_transcription':text,'normalized_text':normalized,'capture':dict(audio_manager.last_capture)}
+                    record_event('transcribed',request_id=request_id,**trace)
+                    await broadcast({'type':'transcription','session':session,'original':text,'normalized':normalized,'final':True,'voice_request_id':request_id})
+                    if re.fullmatch(r'(?:interrompa|interromper|cancele a tarefa|cancelar a tarefa)[ .?!]*',normalized,re.I):
+                        await assistant.interrupt_session(session)
+                    elif not continuous or any(is_vocative(word) or word.casefold() in ('javis','jervis') for word in re.findall(r'\w+',text)[:5]):
+                        task=await assistant.submit(text,session,request_id if not continuous else None,input_data=trace)
+                        record_event('submitted',request_id=request_id,task_id=task['id'])
+                    else:
+                        await broadcast({'type':'notice','session':session,'text':'Fala detectada, mas sem o vocativo do modo contínuo. Diga “Jarvis” antes do pedido ou use o botão de fala única.'})
                 elif not continuous:
                     captured=audio_manager.last_capture
                     name=captured.get('device','selecionado')
                     message=(f'Nenhuma fala detectada no microfone {name}. Confira o mute do headset e a seleção em Configurações.'
                              if not captured.get('speech_detected') else 'Áudio capturado, mas a transcrição não reconheceu palavras. Tente uma frase curta e clara.')
                     if captured.get('reason')!='cancelled':
-                        await broadcast({'type':'notice','text':message})
-            if not continuous or not voice_continuous:
-                break
+                        await broadcast({'type':'notice','text':message,'session':session})
+                        if hasattr(assistant,'acknowledge'):await assistant.acknowledge(session,message,outcome='failed')
+                if not continuous or not voice_continuous:break
+            elif continuous and not voice_continuous:break
             await asyncio.sleep(.5)
     except Exception as exc:
         failed=True
-        await broadcast({'type':'notice','text':'Microfone/transcrição indisponível: '+redact(str(exc))[:400]})
-        await broadcast({'type':'state','state':'FAILED'})
+        await broadcast({'type':'notice','text':'Microfone/transcrição indisponível: '+redact(str(exc))[:400],'session':session})
+        if epoch==voice_epoch and hasattr(assistant,'acknowledge'):
+            await assistant.acknowledge(session,'Senhor, não consegui concluir a captura ou transcrição. Confira o microfone no painel.',outcome='failed')
+        if epoch==voice_epoch:await broadcast({'type':'state','state':'FAILED','session':session,'voice_request_id':request_id})
     finally:
-        if not failed and not assistant.lock.locked():
-            await broadcast({'type':'state','state':'IDLE'})
+        await broadcast({'type':'voice_finished','session':session,'voice_request_id':request_id})
+        if epoch==voice_epoch and not failed and not assistant.lock.locked() and not assistant.runners:
+            await broadcast({'type':'state','state':'IDLE','session':session,'voice_request_id':request_id})
 
 @app.post('/api/shutdown')
 async def shutdown():
@@ -373,7 +509,7 @@ async def shutdown():
 
 @app.websocket('/ws')
 async def websocket(ws:WebSocket):
-    global voice_runner,voice_continuous
+    global voice_runner,voice_continuous,voice_epoch
     if not trusted(ws.headers.get('host',''),ws.headers.get('origin')) or not secrets.compare_digest(ws.cookies.get('jarvis_session',''),COOKIE):
         await ws.close(code=1008)
         return
@@ -394,13 +530,19 @@ async def websocket(ws:WebSocket):
                     task = await assistant.submit(msg.get('command',''),session,task_id)
                     await ws.send_json({'type':'task_updated','task':task})
                 elif action=='listen_trigger':
-                    if assistant.lock.locked() and not msg.get('continuous'):
-                        await ws.send_json({'type':'notice','text':'Há uma tarefa ou fala em andamento. Use Interromper ou aguarde antes de falar.'})
+                    request_id=valid_id(msg.get('id') or secrets.token_hex(16))
+                    if request_id in voice_requests:
+                        await ws.send_json({'type':'notice','text':'Este pedido de microfone já foi recebido.'})
                         continue
                     if not voice_runner or voice_runner.done():
-                        voice_runner = asyncio.create_task(listen(valid_id(msg.get('session','default')),bool(msg.get('continuous'))))
+                        if len(voice_requests)>=100:voice_requests.clear()
+                        voice_requests.add(request_id)
+                        voice_epoch+=1
+                        voice_runner = asyncio.create_task(listen(valid_id(msg.get('session','default')),bool(msg.get('continuous')),request_id,voice_epoch))
+                    else:await ws.send_json({'type':'notice','text':'O microfone já está capturando ou processando uma fala; aguarde ou use Interromper.'})
                 elif action=='microphone_off':
                     voice_continuous = False
+                    voice_epoch+=1
                     audio_manager.stop()
                 elif action=='cancel':
                     if msg.get('id'):

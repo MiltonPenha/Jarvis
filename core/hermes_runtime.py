@@ -112,8 +112,24 @@ class HermesRuntime:
                     # The official Hermes handler owns admission/checkpoints; host
                     # execution uses the JARVIS dependencies, never mutates Hermes's env.
                     host=ToolService(request['id'],cancelled=lambda:proc.returncode is not None)
+                    event_loop=asyncio.get_running_loop()
+                    from core.music_resolution import bridge,select_result
+                    from core.youtube_suggestions import choose
+                    from core.music_intent import interpret
+                    host.context.task=request.get('original_command') or request.get('command','')
+                    if host.context.music_intent.get('original_transcription')!=host.context.task:host.context.music_intent={}
+                    host.context.interpret_music=bridge(event_loop,lambda:proc.returncode is not None,resolver=interpret)
+                    def record_query(query):host.store.input_trace(request['id'],{'final_search_query':query})
+                    host.context.record_music_query=record_query
+                    host.context.resolve_music=bridge(event_loop,lambda:proc.returncode is not None)
+                    host.context.select_music=bridge(event_loop,lambda:proc.returncode is not None,resolver=choose)
+                    host.context.select_music_result=bridge(event_loop,lambda:proc.returncode is not None,resolver=select_result)
+                    if on_event:
+                        host.context.report=lambda value:asyncio.run_coroutine_threadsafe(on_event({'type':'progress','data':value}),event_loop).result(timeout=4)
                     try:
                         output=await asyncio.to_thread(host._dispatch,data['args'])
+                        if host.context.music_intent:host.store.input_trace(request['id'],{'music_intent':host.context.music_intent})
+                        host.context.observe(data['args']['action'],output)
                     except Exception as exc:
                         output={'error':redact(str(exc))[:1000],'verified':False}
                     if proc.returncode is None:

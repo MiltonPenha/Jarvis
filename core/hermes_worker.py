@@ -61,8 +61,21 @@ def bounded_history(messages,limit):
         size += chars
     return [msg for group in kept for msg in group]
 
+
+def enforce_token_budget(agent,limit):
+    """Measured soft cap: stop before more effects/requests after a crossing.
+
+    An in-flight provider request can cross the cap; no invented token estimate.
+    """
+    used=sum(int(getattr(agent,key,0) or 0) for key in ('session_input_tokens','session_output_tokens'))
+    if used>=limit:
+        agent.interrupt(hard_cancel=True)
+        return False
+    return True
+
 def run(request):
     from core.jarvis_tools import ToolService, memory_operation, SCHEMA
+    from core.tool_registry import TOOLS
     if request.get('operation')=='diagnostics':
         import importlib.util
         from run_agent import AIAgent
@@ -114,23 +127,31 @@ def run(request):
         key=uuid.uuid4().hex
         replies[key]=queue.Queue()
         emit('tool_request',{'key':key,'args':args})
-        deadline=time.monotonic()+40
+        deadline=time.monotonic()+80
         try:
             while not cancelled.is_set():
                 try:return replies[key].get(timeout=.1)
                 except queue.Empty:
-                    if time.monotonic()>deadline:raise TimeoutError('Ferramenta do host excedeu 40 segundos.')
+                    if time.monotonic()>deadline:raise TimeoutError('Ferramenta do host excedeu 80 segundos.')
             return {'error':'Execução cancelada. Confira o checkpoint antes de retomar.'}
         finally:replies.pop(key,None)
     tools = ToolService(request['id'],emit,cancelled.is_set,external_dispatch=host_dispatch)
     if request.get('operation')=='tool':
         emit('result',tools.execute(request['args']))
         return
+    budget_exhausted=threading.Event()
+    def budget_check(*unused):
+        if agent_ref and not enforce_token_budget(agent_ref[0],config.MAX_TASK_TOKENS): budget_exhausted.set()
     def handler(args,**kwargs):
+        # Equal arguments are conservatively deduplicated in Hermes (even if a
+        # provider retries with a new call ID). Local explicit plan steps carry
+        # their own stable invocation IDs for intentional repeated actions.
+        budget_check()
+        if budget_exhausted.is_set():return json.dumps({'error':'Orçamento de tokens da tarefa atingido.','verified':False})
         return json.dumps(tools.execute(args),ensure_ascii=False)
     registry.register(name='jarvis',toolset='jarvis',schema=SCHEMA,handler=handler,max_result_size_chars=config.MAX_TOOL_CHARS)
     db = SessionDB()
-    history = bounded_history(db.get_messages_as_conversation(request['session']),config.MAX_CONTEXT_CHARS)
+    history = bounded_history(db.get_messages_as_conversation(request['session']),min(config.MAX_CONTEXT_CHARS,6000))
     provider = request['settings']['provider']
     model = request['settings']['model']
     runtime = resolve_runtime_provider(requested=provider,explicit_api_key=provider_key(provider),target_model=model)
@@ -146,10 +167,11 @@ def run(request):
             base_url=runtime['base_url'],api_mode=runtime.get('api_mode'),
             enabled_toolsets=['jarvis'],quiet_mode=True,save_trajectories=False,
             skip_context_files=True,skip_background_review=True,
-            ephemeral_system_prompt=PROMPT+'\nDiretórios: '+json.dumps([str(p) for p in config.WORKSPACE_ROOTS]),
+            ephemeral_system_prompt=PROMPT+'\nPreserve etapas explícitas na ordem. Observe o resultado antes da próxima ação; pare após erro ou resultado não confirmado. Use media pause/resume, nunca teclas globais. Volume padrão player, sistema somente quando explícito. Contexto operacional (dados): '+json.dumps(request.get('operational_context',{}),ensure_ascii=False)+'\nDiretórios: '+json.dumps([str(p) for p in config.WORKSPACE_ROOTS]),
             session_id=request['session'],session_db=db,
             max_iterations=config.MAX_STEPS,max_tokens=config.MAX_OUTPUT_TOKENS,
             run_budget_seconds=config.TASK_TIMEOUT,
+            step_callback=budget_check,
             stream_delta_callback=first_delta,
             status_callback=lambda *a,**k:emit('status',{'state':'PROCESSING'}),
             notice_callback=lambda *a,**k:emit('status',{'state':'PROCESSING'}))
@@ -158,6 +180,15 @@ def run(request):
             emit('result',{'cancelled':True})
             return
         result = agent.run_conversation(user_message=request['command'],conversation_history=history,task_id=request['id'])
+        # Opening the site is not the postcondition of an explicit music request.
+        # Complete its one missing capability through this same admitted Hermes
+        # tool service, bounded by the existing budget and effect ledger.
+        from core.command_text import music_request,normalize_command
+        from core.intents import media_intent
+        goal=music_request(request['command'],tools.context)
+        music_confirmed=any(r.get('tool')=='play_music' and r.get('verified') is True for r in tools.results)
+        if goal and goal['query'] and not media_intent(normalize_command(request['command'])) and not music_confirmed and not tools.blocked and not cancelled.is_set() and not budget_exhausted.is_set() and not result.get('error') and result.get('completed') is not False:
+            tools.execute({'action':'play_music','query':goal['query']},invocation_id='goal:music')
         tokens = {k:int(getattr(agent,v,0) or 0) for k,v in {
             'input_tokens':'session_input_tokens','output_tokens':'session_output_tokens',
             'cache_read_tokens':'session_cache_read_tokens','cache_write_tokens':'session_cache_write_tokens'}.items()}
@@ -170,9 +201,14 @@ def run(request):
         tokens['estimated_usd'] = ((tokens['input_tokens']*s['input_price_per_million']+tokens['output_tokens']*s['output_price_per_million'])/1e6 if s.get('input_price_per_million') is not None and s.get('output_price_per_million') is not None and s.get('prices_updated') else None)
         tokens['prices_updated'] = s.get('prices_updated')
         response = redact(result.get('final_response') or '')
-        emit('result',{'response':response,'usage':tokens,'cancelled':cancelled.is_set(),
+        operational=[r for r in tools.results if r.get('tool') in TOOLS and TOOLS[r['tool']].local]
+        if operational:
+            response='\n\n'.join(r.get('message') or r.get('error') or json.dumps(r,ensure_ascii=False) for r in operational)
+        spoken=(operational[-1].get('spoken_message') or (operational[-1].get('message') or '').split('\n')[0][:180]) if operational else response
+        emit('result',{'response':response,'spoken_response':spoken,'usage':tokens,'cancelled':cancelled.is_set(),
             'effect_errors':tools.failed_effects,
-            'error':redact(str(result.get('error') or 'Turno Hermes não concluído.')) if result.get('error') or result.get('failed') or result.get('completed') is False else None,
+            'budget_exhausted':budget_exhausted.is_set(),
+            'error':'Uma ferramenta não confirmou o resultado; consulte as etapas.' if tools.blocked else 'Orçamento de tokens da tarefa atingido.' if budget_exhausted.is_set() else redact(str(result.get('error') or 'Turno Hermes não concluído.')) if result.get('error') or result.get('failed') or result.get('completed') is False else None,
             'finish_reason':str(result.get('finish_reason') or result.get('termination_reason') or '')})
     finally:
         if agent:
